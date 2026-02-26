@@ -1,24 +1,26 @@
-# Happy Post — Reformatage d'étiquettes
+# Happy Post — Outils d'expédition
 
 **[>>> Utiliser l'app en ligne <<<](https://happy-post.streamlit.app/)**
 
 ![Avant / Après](preview.png)
 
-## Le problème
+## Fonctionnalités
 
-Les PDF d'étiquettes générés par [Happy Post](https://happy-post.com) utilisent **une page entière par étiquette** — la moitié haute est l'étiquette de transport, la moitié basse sont des instructions répétées à chaque page.
+### 1. Reformatage d'étiquettes
 
-## La solution
+Les PDF d'étiquettes Happy Post utilisent **une page entière par étiquette**. Cet outil regroupe **4 étiquettes par feuille A4** — ~70% de papier économisé.
 
-Cet outil extrait uniquement la partie utile et regroupe **4 étiquettes par feuille A4**. Résultat : **~70% de papier économisé**.
+### 2. Génération du fichier d'import
+
+Génère le fichier d'import Happy Post (.xlsx) directement depuis les bons de commande Amazon (PDF). Extraction automatique des adresses Belgique, calcul du poids selon le type de lot.
 
 ## Utilisation
 
 ### App en ligne (recommandé)
 
-Rendez-vous sur **[happy-post.streamlit.app](https://happy-post.streamlit.app/)** — uploadez votre PDF, téléchargez le résultat. C'est tout.
+Rendez-vous sur **[happy-post.streamlit.app](https://happy-post.streamlit.app/)** — deux onglets, uploadez votre PDF, téléchargez le résultat.
 
-### En local (Streamlit)
+### En local
 
 ```bash
 pip install -r requirements.txt
@@ -28,17 +30,12 @@ streamlit run app.py
 ### Ligne de commande
 
 ```bash
+# Reformater les étiquettes
 python reformat_etiquettes.py <etiquettes_happypost.pdf> [output.pdf]
+
+# Générer le fichier d'import
+python generate_import.py <commandes_amazon.pdf> [YYYY-MM-DD]
 ```
-
-Sans nom de sortie, génère `<nom_original>_4par_page.pdf`.
-
-#### Déploiement Streamlit Cloud
-
-1. Pousser le repo sur GitHub
-2. Aller sur [share.streamlit.io](https://share.streamlit.io)
-3. Connecter le repo, sélectionner `app.py`
-4. L'app est en ligne, partageable par lien
 
 ## Dépendances
 
