@@ -1,5 +1,7 @@
 # Happy Post — Reformatage d'étiquettes
 
+**[>>> Utiliser l'app en ligne <<<](https://happy-post.streamlit.app/)**
+
 ![Avant / Après](preview.png)
 
 ## Le problème
@@ -12,16 +14,18 @@ Cet outil extrait uniquement la partie utile et regroupe **4 étiquettes par feu
 
 ## Utilisation
 
-### App web (Streamlit)
+### App en ligne (recommandé)
+
+Rendez-vous sur **[happy-post.streamlit.app](https://happy-post.streamlit.app/)** — uploadez votre PDF, téléchargez le résultat. C'est tout.
+
+### En local (Streamlit)
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Uploadez votre PDF, téléchargez le résultat. C'est tout.
-
-#### Ligne de commande
+### Ligne de commande
 
 ```bash
 python reformat_etiquettes.py <etiquettes_happypost.pdf> [output.pdf]
