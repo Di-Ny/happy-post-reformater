@@ -14,6 +14,8 @@ st.markdown(
     "Économisez **~70% de papier**."
 )
 
+st.image("preview.png", use_container_width=True)
+
 uploaded = st.file_uploader(
     "Glissez ici votre PDF d'étiquettes Happy Post",
     type=["pdf"],
