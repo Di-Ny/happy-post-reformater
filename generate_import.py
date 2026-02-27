@@ -290,8 +290,8 @@ def parse_orders_from_pdf_text(pdf_path):
                     continue
                 if line.strip():
                     product_lines.append(line.strip())
-                    # Arrêter après la ligne contenant "Lot" ou "Piège Seul" ou "TVA"
-                    if "lot de" in line.lower() or "seul" in line.lower() or "tva" in line.lower():
+                    # Arrêter après la ligne identifiant le type de lot
+                    if "lot de" in line.lower() or "seul" in line.lower():
                         in_product = False
 
         product = " ".join(product_lines)
