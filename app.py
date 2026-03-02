@@ -311,25 +311,75 @@ with tab_import:
         else:
             st.success(f"✅ **{len(orders)} commande(s) Belgique** extraites")
 
-            # Tableau recapitulatif
+            # Tableau éditable
+            import pandas as pd
             label_map = {0.31: "x1", 0.32: "x2", 0.35: "x3", 0.34: "Multi", 0.50: "Multi x3"}
-            recap_data = []
-            for i, o in enumerate(orders, 1):
-                recap_data.append({
-                    "#": i,
-                    "Nom": f"{o['nom']} {o['prenom']}",
+            weight_map = {"x1": 0.31, "x2": 0.32, "x3": 0.35, "Multi": 0.34, "Multi x3": 0.50}
+
+            edit_data = []
+            for i, o in enumerate(orders):
+                edit_data.append({
+                    "Nom": o["nom"],
+                    "Prénom": o["prenom"],
+                    "Entreprise": o["entreprise"],
                     "Adresse": o["adresse"],
+                    "Complément": o["complement"],
                     "CP": o["code_postal"],
                     "Ville": o["ville"],
+                    "Province": o["province"],
+                    "Téléphone": o["telephone"],
                     "Type": label_map.get(o["poids"], "?"),
-                    "Poids": f"{o['poids']} kg",
                 })
 
-            st.dataframe(recap_data, use_container_width=True, hide_index=True)
+            df = pd.DataFrame(edit_data)
+
+            # Signaler les champs vides importants
+            missing_rows = []
+            for i, row in df.iterrows():
+                missing = []
+                if not row["Adresse"]:
+                    missing.append("Adresse")
+                if not row["Ville"]:
+                    missing.append("Ville")
+                if not row["CP"]:
+                    missing.append("CP")
+                if not row["Téléphone"]:
+                    missing.append("Téléphone")
+                if missing:
+                    missing_rows.append(f"**Ligne {i+1}** ({row['Nom']} {row['Prénom']}) : {', '.join(missing)}")
+
+            if missing_rows:
+                st.warning("⚠️ **Champs manquants** (corrigez ci-dessous) :\n" + "\n".join(f"- {r}" for r in missing_rows))
+
+            edited_df = st.data_editor(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Type": st.column_config.SelectboxColumn(
+                        options=["x1", "x2", "x3", "Multi", "Multi x3"],
+                    ),
+                },
+                num_rows="fixed",
+            )
+
+            # Réinjecter les modifications dans orders
+            for i, o in enumerate(orders):
+                row = edited_df.iloc[i]
+                o["nom"] = row["Nom"] or ""
+                o["prenom"] = row["Prénom"] or ""
+                o["entreprise"] = row["Entreprise"] or ""
+                o["adresse"] = row["Adresse"] or ""
+                o["complement"] = row["Complément"] or ""
+                o["code_postal"] = row["CP"] or ""
+                o["ville"] = row["Ville"] or ""
+                o["province"] = row["Province"] or ""
+                o["telephone"] = row["Téléphone"] or ""
+                o["poids"] = weight_map.get(row["Type"], o["poids"])
 
             # Compter par type
             from collections import Counter
-            types = Counter(label_map.get(o["poids"], "?") for o in orders)
+            types = Counter(edited_df["Type"])
             total_pieges = sum(
                 count * {"x1": 1, "x2": 2, "x3": 3, "Multi": 4, "Multi x3": 6}.get(t, 1)
                 for t, count in types.items()
@@ -360,8 +410,6 @@ with tab_import:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
             )
-
-            st.warning("⚠️ **Vérifiez toujours le fichier avant de l'importer sur Happy Post !**")
 
 st.divider()
 st.caption(
