@@ -91,23 +91,23 @@ def parse_orders_from_pdf_text(pdf_path):
         for page in pdf.pages:
             full_text += page.extract_text() + "\n===PAGE_BREAK===\n"
 
-    # Séparer par commande (chaque commande commence par "Adresse de livraison")
+    # Séparer par commande (chaque commande commence par "Adresse de livraison" ou "Adresse d'expédition")
     # On split par page break et on traite chaque page comme une commande
     pages = full_text.split("===PAGE_BREAK===")
 
     for page_text in pages:
         page_text = page_text.strip()
-        if not page_text or "Adresse de livraison" not in page_text:
+        if not page_text or ("Adresse de livraison" not in page_text and "Adresse d'expédition" not in page_text and "Adresse d\u2019expédition" not in page_text):
             continue
 
         lines = page_text.split("\n")
         order = {}
 
-        # Extraire le bloc adresse (entre "Adresse de livraison :" et la ligne de tirets)
+        # Extraire le bloc adresse (entre "Adresse de livraison/expédition :" et la ligne de tirets)
         addr_started = False
         addr_lines = []
         for line in lines:
-            if "Adresse de livraison" in line:
+            if "Adresse de livraison" in line or "Adresse d'expédition" in line or "Adresse d\u2019expédition" in line:
                 addr_started = True
                 # Parfois le nom est sur la même ligne après ":"
                 after = line.split(":", 1)
