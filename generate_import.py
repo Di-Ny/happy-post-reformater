@@ -175,12 +175,33 @@ def parse_orders_from_pdf_text(pdf_path):
             name_line = filtered_lines[0]
 
         # Chercher la ligne ville/CP : contient un code postal (4 chiffres pour BE)
+        # Formats possibles :
+        #   "Ville, CODE_POSTAL"       (Amazon BE)
+        #   "CODE_POSTAL Ville"         (Amazon FR)
+        #   "Ville, PROVINCE CODE_POSTAL"
+        # On évite les lignes de rue qui contiennent un numéro de 4 chiffres
+        # (ex: "Chaussée de Wavre 1731") en vérifiant le pattern global
         city_zip_idx = -1
         for i, line in enumerate(filtered_lines[1:], 1):
-            # Pattern : "Ville, CODE_POSTAL" ou "VILLE, PROVINCE CODE_POSTAL"
-            if re.search(r'\b\d{4}\b', line):
+            stripped = line.strip()
+            # Pattern 1 : "Ville, CP" ou "Ville, Province CP" (virgule + CP)
+            if re.search(r',\s*.*\b\d{4}\b', stripped):
                 city_zip_idx = i
                 break
+            # Pattern 2 : "CP Ville" (ligne commence par 4 chiffres)
+            if re.match(r'^\d{4}\s+\S', stripped):
+                city_zip_idx = i
+                break
+            # Pattern 3 : ligne = juste "Ville CP" sans virgule mais pas une rue
+            # (une rue a typiquement un mot comme rue/avenue/chaussée/etc.)
+            if re.search(r'\b\d{4}\b', stripped):
+                has_street_word = re.search(
+                    r'\b(rue|avenue|boulevard|chaussée|chemin|place|allée|impasse|'
+                    r'drève|sentier|voie|route|ch\.|av\.|bd\.?|bte)\b',
+                    stripped, re.IGNORECASE)
+                if not has_street_word:
+                    city_zip_idx = i
+                    break
 
         if city_zip_idx > 0:
             # Tout entre le nom et la ville = adresse
@@ -233,6 +254,10 @@ def parse_orders_from_pdf_text(pdf_path):
                     if prov in city_lower:
                         province = city_raw[city_lower.index(prov):city_lower.index(prov)+len(prov)]
                         city = city_raw[:city_lower.index(prov)].strip().strip(",").strip()
+                        # Si la ville est vide après extraction de la province,
+                        # c'est que la ville a le même nom que la province (ex: Liège)
+                        if not city:
+                            city = province
                         break
                 else:
                     city = city_raw
