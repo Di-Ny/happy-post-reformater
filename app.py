@@ -11,6 +11,140 @@ st.set_page_config(
 
 st.title("📦 Happy Post — Outils d'expédition")
 
+
+# -- Helpers de layout --
+def get_layout_config(labels_per_page):
+    """Retourne la config de grille pour 4 ou 6 etiquettes par page."""
+    A4_W, A4_H = 595.28, 841.89
+    if labels_per_page == 6:
+        # Avery L7166 : 99.1mm x 93.1mm, grille 2x3
+        cell_w_mm, cell_h_mm = 99.1, 93.1
+        margin_x = (210 - 2 * cell_w_mm) / 2  # ~5.9mm
+        margin_y = (297 - 3 * cell_h_mm) / 2  # ~8.85mm
+        # Conversion mm -> points (1mm = 2.8346pt)
+        cell_w = cell_w_mm * 2.8346
+        cell_h = cell_h_mm * 2.8346
+        mx = margin_x * 2.8346
+        my = margin_y * 2.8346
+        cols, rows = 2, 3
+        positions = []
+        for r in range(rows):
+            for c in range(cols):
+                positions.append((mx + c * cell_w, my + r * cell_h))
+    else:
+        margin = 12
+        gap = 6
+        usable_w = A4_W - 2 * margin
+        usable_h = A4_H - 2 * margin
+        cell_w = (usable_w - gap) / 2
+        cell_h = (usable_h - gap) / 2
+        mx, my = margin, margin
+        cols, rows = 2, 2
+        positions = [
+            (mx, my),
+            (mx + cell_w + gap, my),
+            (mx, my + cell_h + gap),
+            (mx + cell_w + gap, my + cell_h + gap),
+        ]
+    return {
+        "A4_W": A4_W, "A4_H": A4_H,
+        "cell_w": cell_w, "cell_h": cell_h,
+        "positions": positions,
+        "cols": cols, "rows": rows,
+        "margin_x": mx, "margin_y": my,
+        "labels_per_page": labels_per_page,
+    }
+
+
+def best_orientation(src_w, src_h, cell_w, cell_h):
+    """Retourne (ratio, rotate) pour l'orientation qui remplit le mieux la cellule."""
+    # Sans rotation (portrait)
+    ratio_p = src_w / src_h
+    cell_ratio = cell_w / cell_h
+    if ratio_p > cell_ratio:
+        fill_p = cell_w * (cell_w / ratio_p)
+    else:
+        fill_p = cell_h * (cell_h * ratio_p)
+    # Avec rotation 90deg : w et h echanges
+    ratio_r = src_h / src_w
+    if ratio_r > cell_ratio:
+        fill_r = cell_w * (cell_w / ratio_r)
+    else:
+        fill_r = cell_h * (cell_h * ratio_r)
+    if fill_r >= fill_p:
+        return ratio_r, 90
+    return ratio_p, 0
+
+
+def render_label_in_cell(page, src_page, crop_ratio, cfg, idx):
+    """Rend une etiquette dans la cellule idx de la page."""
+    src_rect = src_page.rect
+    clip = fitz.Rect(
+        src_rect.x0, src_rect.y0,
+        src_rect.x1, src_rect.y0 + src_rect.height * crop_ratio,
+    )
+    cell_w, cell_h = cfg["cell_w"], cfg["cell_h"]
+    this_src_w = src_rect.width
+    this_src_h = src_rect.height * crop_ratio
+    this_rot_ratio, rotate = best_orientation(this_src_w, this_src_h, cell_w, cell_h)
+
+    zoom = 3.0
+    mat = fitz.Matrix(zoom, zoom).prerotate(rotate)
+    pix = src_page.get_pixmap(matrix=mat, clip=clip)
+
+    cell_ratio = cell_w / cell_h
+    if this_rot_ratio > cell_ratio:
+        img_w = cell_w
+        img_h = cell_w / this_rot_ratio
+    else:
+        img_h = cell_h
+        img_w = cell_h * this_rot_ratio
+
+    cx, cy = cfg["positions"][idx]
+    offset_x = (cell_w - img_w) / 2
+    offset_y = (cell_h - img_h) / 2
+    target = fitz.Rect(cx + offset_x, cy + offset_y,
+                       cx + offset_x + img_w, cy + offset_y + img_h)
+    page.insert_image(target, pixmap=pix)
+
+
+def draw_cut_guides(page, cfg):
+    """Dessine les lignes de decoupe et reperes de coins."""
+    A4_W, A4_H = cfg["A4_W"], cfg["A4_H"]
+    cell_w, cell_h = cfg["cell_w"], cfg["cell_h"]
+    mx, my = cfg["margin_x"], cfg["margin_y"]
+    cols, rows = cfg["cols"], cfg["rows"]
+    gray = (0.65, 0.65, 0.65)
+    dash = "[3 3] 0"
+    shape = page.new_shape()
+
+    # Lignes horizontales entre les rangees
+    for r in range(1, rows):
+        y = my + r * cell_h
+        shape.draw_line(fitz.Point(mx, y), fitz.Point(A4_W - mx, y))
+        shape.finish(color=gray, width=0.4, dashes=dash)
+
+    # Lignes verticales entre les colonnes
+    for c in range(1, cols):
+        x = mx + c * cell_w
+        shape.draw_line(fitz.Point(x, my), fitz.Point(x, A4_H - my))
+        shape.finish(color=gray, width=0.4, dashes=dash)
+
+    # Reperes de coins
+    mark = 6
+    for corner_x in [mx, mx + cols * cell_w]:
+        for corner_y in [my, my + rows * cell_h]:
+            dx = mark if corner_x == mx else -mark
+            dy = mark if corner_y == my else -mark
+            shape.draw_line(fitz.Point(corner_x, corner_y),
+                            fitz.Point(corner_x + dx, corner_y))
+            shape.finish(color=gray, width=0.3)
+            shape.draw_line(fitz.Point(corner_x, corner_y),
+                            fitz.Point(corner_x, corner_y + dy))
+            shape.finish(color=gray, width=0.3)
+    shape.commit()
+
+
 tab_etiquettes, tab_multi_etiquettes, tab_import = st.tabs([
     "✂️ Reformater les étiquettes",
     "✂️ Reformater (multi-fichiers)",
@@ -22,11 +156,19 @@ tab_etiquettes, tab_multi_etiquettes, tab_import = st.tabs([
 # =============================================================================
 with tab_etiquettes:
     st.markdown(
-        "Transformez vos étiquettes Happy Post : **4 par feuille A4** au lieu d'une seule. "
-        "Économisez **~70% de papier**."
+        "Transformez vos étiquettes Happy Post : **plusieurs par feuille A4** au lieu d'une seule. "
+        "Économisez du papier."
     )
 
     st.image("preview.png", use_container_width=True)
+
+    format_choice_1 = st.radio(
+        "Format de sortie",
+        ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
+        horizontal=True,
+        key="format_tab1",
+    )
+    lpp_1 = 6 if "6" in format_choice_1 else 4
 
     uploaded_labels = st.file_uploader(
         "Glissez ici votre PDF d'étiquettes Happy Post",
@@ -41,98 +183,28 @@ with tab_etiquettes:
 
         st.info(f"📄 {n_pages} page(s) détectée(s) dans **{uploaded_labels.name}**")
 
-        # --- Parametres ---
-        A4_W, A4_H = 595.28, 841.89
-        crop_ratio = 0.48
-        margin = 12
-        gap = 6
-        usable_w = A4_W - 2 * margin
-        usable_h = A4_H - 2 * margin
-        cell_w = (usable_w - gap) / 2
-        cell_h = (usable_h - gap) / 2
-        cell_ratio = cell_w / cell_h
-
+        crop_ratio = 0.57
+        cfg = get_layout_config(lpp_1)
         all_pages = list(range(n_pages))
         dst = fitz.open()
 
-        positions = [
-            (margin, margin),
-            (margin + cell_w + gap, margin),
-            (margin, margin + cell_h + gap),
-            (margin + cell_w + gap, margin + cell_h + gap),
-        ]
-
-        for batch_start in range(0, len(all_pages), 4):
-            batch = all_pages[batch_start:batch_start + 4]
-            page = dst.new_page(width=A4_W, height=A4_H)
+        for batch_start in range(0, len(all_pages), lpp_1):
+            batch = all_pages[batch_start:batch_start + lpp_1]
+            page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
 
             for idx, src_page_num in enumerate(batch):
-                src_page = src[src_page_num]
-                src_rect = src_page.rect
+                render_label_in_cell(page, src[src_page_num], crop_ratio, cfg, idx)
 
-                clip = fitz.Rect(
-                    src_rect.x0,
-                    src_rect.y0,
-                    src_rect.x1,
-                    src_rect.y0 + src_rect.height * crop_ratio,
-                )
+            draw_cut_guides(page, cfg)
 
-                zoom = 3.0
-                mat = fitz.Matrix(zoom, zoom).prerotate(90)
-                pix = src_page.get_pixmap(matrix=mat, clip=clip)
-
-                cx, cy = positions[idx]
-                this_src_w = src_rect.width
-                this_src_h = src_rect.height * crop_ratio
-                this_rot_ratio = this_src_h / this_src_w
-                if this_rot_ratio > cell_ratio:
-                    this_img_w = cell_w
-                    this_img_h = cell_w / this_rot_ratio
-                else:
-                    this_img_h = cell_h
-                    this_img_w = cell_h * this_rot_ratio
-
-                offset_x = (cell_w - this_img_w) / 2
-                offset_y = (cell_h - this_img_h) / 2
-                target = fitz.Rect(
-                    cx + offset_x,
-                    cy + offset_y,
-                    cx + offset_x + this_img_w,
-                    cy + offset_y + this_img_h,
-                )
-                page.insert_image(target, pixmap=pix)
-
-            # Lignes de decoupe
-            mid_y = margin + cell_h + gap / 2
-            mid_x = margin + cell_w + gap / 2
-            gray = (0.65, 0.65, 0.65)
-            dash = "[3 3] 0"
-            shape = page.new_shape()
-            shape.draw_line(fitz.Point(margin, mid_y), fitz.Point(A4_W - margin, mid_y))
-            shape.finish(color=gray, width=0.4, dashes=dash)
-            shape.draw_line(fitz.Point(mid_x, margin), fitz.Point(mid_x, A4_H - margin))
-            shape.finish(color=gray, width=0.4, dashes=dash)
-
-            mark = 6
-            for corner_x in [margin, A4_W - margin]:
-                for corner_y in [margin, A4_H - margin]:
-                    dx = mark if corner_x == margin else -mark
-                    dy = mark if corner_y == margin else -mark
-                    shape.draw_line(fitz.Point(corner_x, corner_y), fitz.Point(corner_x + dx, corner_y))
-                    shape.finish(color=gray, width=0.3)
-                    shape.draw_line(fitz.Point(corner_x, corner_y), fitz.Point(corner_x, corner_y + dy))
-                    shape.finish(color=gray, width=0.3)
-            shape.commit()
-
-        # Generer le PDF en memoire
         out_buf = io.BytesIO()
         dst.save(out_buf)
         dst.close()
         src.close()
         out_buf.seek(0)
 
-        n_sheets = -(-n_pages // 4)
-        out_name = uploaded_labels.name.replace(".pdf", "_4par_page.pdf")
+        n_sheets = -(-n_pages // lpp_1)
+        out_name = uploaded_labels.name.replace(".pdf", f"_{lpp_1}par_page.pdf")
 
         st.success(
             f"✅ {n_pages} étiquettes → **{n_sheets} feuille(s) A4**  \n"
@@ -153,8 +225,16 @@ with tab_etiquettes:
 with tab_multi_etiquettes:
     st.markdown(
         "Vous avez **plusieurs fichiers PDF** (1 étiquette par fichier) ? "
-        "Combinez-les en un seul PDF avec **4 étiquettes par feuille A4**."
+        "Combinez-les en un seul PDF avec **plusieurs étiquettes par feuille A4**."
     )
+
+    format_choice_2 = st.radio(
+        "Format de sortie",
+        ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
+        horizontal=True,
+        key="format_tab2",
+    )
+    lpp_2 = 6 if "6" in format_choice_2 else 4
 
     uploaded_multi = st.file_uploader(
         "Glissez ici vos fichiers PDF d'étiquettes",
@@ -167,92 +247,23 @@ with tab_multi_etiquettes:
         n_files = len(uploaded_multi)
         st.info(f"📄 **{n_files} fichier(s)** sélectionné(s)")
 
-        # Ouvrir tous les PDF en mémoire
         sources = []
         for uf in uploaded_multi:
             pdf_bytes = uf.read()
             sources.append(fitz.open(stream=pdf_bytes, filetype="pdf"))
 
-        A4_W, A4_H = 595.28, 841.89
-        crop_ratio = 0.48
-        margin = 12
-        gap = 6
-        usable_w = A4_W - 2 * margin
-        usable_h = A4_H - 2 * margin
-        cell_w = (usable_w - gap) / 2
-        cell_h = (usable_h - gap) / 2
-        cell_ratio = cell_w / cell_h
-
-        positions = [
-            (margin, margin),
-            (margin + cell_w + gap, margin),
-            (margin, margin + cell_h + gap),
-            (margin + cell_w + gap, margin + cell_h + gap),
-        ]
-
+        crop_ratio = 0.57
+        cfg = get_layout_config(lpp_2)
         dst = fitz.open()
 
-        for batch_start in range(0, n_files, 4):
-            batch = sources[batch_start:batch_start + 4]
-            page = dst.new_page(width=A4_W, height=A4_H)
+        for batch_start in range(0, n_files, lpp_2):
+            batch = sources[batch_start:batch_start + lpp_2]
+            page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
 
             for idx, src_doc in enumerate(batch):
-                src_page = src_doc[0]
-                src_rect = src_page.rect
+                render_label_in_cell(page, src_doc[0], crop_ratio, cfg, idx)
 
-                clip = fitz.Rect(
-                    src_rect.x0,
-                    src_rect.y0,
-                    src_rect.x1,
-                    src_rect.y0 + src_rect.height * crop_ratio,
-                )
-
-                zoom = 3.0
-                mat = fitz.Matrix(zoom, zoom).prerotate(90)
-                pix = src_page.get_pixmap(matrix=mat, clip=clip)
-
-                cx, cy = positions[idx]
-                this_src_w = src_rect.width
-                this_src_h = src_rect.height * crop_ratio
-                this_rot_ratio = this_src_h / this_src_w
-                if this_rot_ratio > cell_ratio:
-                    this_img_w = cell_w
-                    this_img_h = cell_w / this_rot_ratio
-                else:
-                    this_img_h = cell_h
-                    this_img_w = cell_h * this_rot_ratio
-
-                offset_x = (cell_w - this_img_w) / 2
-                offset_y = (cell_h - this_img_h) / 2
-                target = fitz.Rect(
-                    cx + offset_x,
-                    cy + offset_y,
-                    cx + offset_x + this_img_w,
-                    cy + offset_y + this_img_h,
-                )
-                page.insert_image(target, pixmap=pix)
-
-            # Lignes de decoupe
-            mid_y = margin + cell_h + gap / 2
-            mid_x = margin + cell_w + gap / 2
-            gray = (0.65, 0.65, 0.65)
-            dash = "[3 3] 0"
-            shape = page.new_shape()
-            shape.draw_line(fitz.Point(margin, mid_y), fitz.Point(A4_W - margin, mid_y))
-            shape.finish(color=gray, width=0.4, dashes=dash)
-            shape.draw_line(fitz.Point(mid_x, margin), fitz.Point(mid_x, A4_H - margin))
-            shape.finish(color=gray, width=0.4, dashes=dash)
-
-            mark = 6
-            for corner_x in [margin, A4_W - margin]:
-                for corner_y in [margin, A4_H - margin]:
-                    dx = mark if corner_x == margin else -mark
-                    dy = mark if corner_y == margin else -mark
-                    shape.draw_line(fitz.Point(corner_x, corner_y), fitz.Point(corner_x + dx, corner_y))
-                    shape.finish(color=gray, width=0.3)
-                    shape.draw_line(fitz.Point(corner_x, corner_y), fitz.Point(corner_x, corner_y + dy))
-                    shape.finish(color=gray, width=0.3)
-            shape.commit()
+            draw_cut_guides(page, cfg)
 
         for s in sources:
             s.close()
@@ -262,16 +273,17 @@ with tab_multi_etiquettes:
         dst.close()
         out_buf.seek(0)
 
-        n_sheets = -(-n_files // 4)
+        n_sheets = -(-n_files // lpp_2)
+        out_name = f"etiquettes_{lpp_2}par_page.pdf"
         st.success(
             f"✅ {n_files} étiquettes → **{n_sheets} feuille(s) A4**  \n"
             f"Économie : **{n_files - n_sheets} feuille(s)** en moins !"
         )
 
         st.download_button(
-            label=f"⬇️ Télécharger etiquettes_4par_page.pdf",
+            label=f"⬇️ Télécharger {out_name}",
             data=out_buf,
-            file_name="etiquettes_4par_page.pdf",
+            file_name=out_name,
             mime="application/pdf",
             type="primary",
             key="multi_download",

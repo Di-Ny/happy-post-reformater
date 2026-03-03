@@ -37,8 +37,8 @@ def reformat_labels(input_pdf, output_pdf=None):
     # Pages 1+ (colis simples) : crop_ratio ~48%
     def get_crop_ratio(page_idx):
         if page_idx == 0:
-            return 0.48  # MasterColis : partie haute similaire
-        return 0.48
+            return 0.57  # MasterColis : partie haute similaire
+        return 0.57
 
     # Marge et espacement
     margin = 12
@@ -58,7 +58,7 @@ def reformat_labels(input_pdf, output_pdf=None):
     # Apres rotation, le ratio de l'etiquette = hauteur_originale / largeur_originale
     sample_page = src[1] if len(src) > 1 else src[0]
     src_w = sample_page.rect.width   # ~595
-    src_h = sample_page.rect.height * 0.48  # ~403
+    src_h = sample_page.rect.height * 0.57  # ~480
 
     # Apres rotation 90 CW : nouvelle largeur = src_h, nouvelle hauteur = src_w
     rot_w = src_h  # ~403
