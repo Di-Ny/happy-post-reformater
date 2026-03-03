@@ -76,6 +76,32 @@ def best_orientation(src_w, src_h, cell_w, cell_h):
     return ratio_p, 0
 
 
+def smart_crop(src_page):
+    """Detecte la zone utile de l'etiquette Happy Post en trouvant le cadre principal."""
+    src_rect = src_page.rect
+    best_rect = None
+    best_area = 0
+    for p in src_page.get_drawings():
+        r = p["rect"]
+        area = r.width * r.height
+        if area > best_area and r.width > 200 and r.height > 150:
+            best_rect = r
+            best_area = area
+
+    if best_rect:
+        margin_pt = 8
+        x0 = max(best_rect.x0 - 50, 0)
+        y0 = max(best_rect.y0 - margin_pt, 0)
+        x1 = min(best_rect.x1 + margin_pt, src_rect.width)
+        y1 = min(best_rect.y1 + 25, src_rect.height)
+        return fitz.Rect(x0, y0, x1, y1)
+
+    return fitz.Rect(
+        src_rect.x0, src_rect.y0,
+        src_rect.x1, src_rect.y0 + src_rect.height * 0.47,
+    )
+
+
 def draw_cut_guides(page, cfg):
     """Dessine les lignes de decoupe et reperes de coins."""
     A4_W, A4_H = cfg["A4_W"], cfg["A4_H"]
@@ -119,7 +145,6 @@ def reformat_multi_labels(pdf_paths, output_pdf=None, labels_per_page=4):
         base_dir = os.path.dirname(pdf_paths[0]) or "."
         output_pdf = os.path.join(base_dir, f"etiquettes_{labels_per_page}par_page.pdf")
 
-    crop_ratio = 0.57
     cfg = get_layout_config(labels_per_page)
     dst = fitz.open()
 
@@ -130,17 +155,10 @@ def reformat_multi_labels(pdf_paths, output_pdf=None, labels_per_page=4):
         for idx, pdf_path in enumerate(batch):
             src = fitz.open(pdf_path)
             src_page = src[0]
-            src_rect = src_page.rect
 
-            clip = fitz.Rect(
-                src_rect.x0, src_rect.y0,
-                src_rect.x1, src_rect.y0 + src_rect.height * crop_ratio,
-            )
-
-            this_src_w = src_rect.width
-            this_src_h = src_rect.height * crop_ratio
+            clip = smart_crop(src_page)
             cell_w, cell_h = cfg["cell_w"], cfg["cell_h"]
-            this_rot_ratio, rotate = best_orientation(this_src_w, this_src_h, cell_w, cell_h)
+            this_rot_ratio, rotate = best_orientation(clip.width, clip.height, cell_w, cell_h)
 
             zoom = 3.0
             mat = fitz.Matrix(zoom, zoom).prerotate(rotate)

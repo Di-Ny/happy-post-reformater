@@ -76,16 +76,41 @@ def best_orientation(src_w, src_h, cell_w, cell_h):
     return ratio_p, 0
 
 
-def render_label_in_cell(page, src_page, crop_ratio, cfg, idx):
-    """Rend une etiquette dans la cellule idx de la page."""
+def smart_crop(src_page):
+    """Detecte la zone utile de l'etiquette Happy Post en trouvant le cadre principal."""
     src_rect = src_page.rect
-    clip = fitz.Rect(
+    # Chercher le plus grand rectangle dessine (= cadre principal de l'etiquette)
+    best_rect = None
+    best_area = 0
+    for p in src_page.get_drawings():
+        r = p["rect"]
+        area = r.width * r.height
+        if area > best_area and r.width > 200 and r.height > 150:
+            best_rect = r
+            best_area = area
+
+    if best_rect:
+        # Etendre: a gauche pour le logo, en bas pour les codes-barres sous le cadre
+        margin_pt = 8
+        x0 = max(best_rect.x0 - 50, 0)            # logo HAPPY-POST a gauche du cadre
+        y0 = max(best_rect.y0 - margin_pt, 0)      # petite marge en haut
+        x1 = min(best_rect.x1 + margin_pt, src_rect.width)
+        y1 = min(best_rect.y1 + 25, src_rect.height)  # codes-barres + tracking en dessous
+        return fitz.Rect(x0, y0, x1, y1)
+
+    # Fallback: crop ratio fixe si pas de rectangle detecte
+    return fitz.Rect(
         src_rect.x0, src_rect.y0,
-        src_rect.x1, src_rect.y0 + src_rect.height * crop_ratio,
+        src_rect.x1, src_rect.y0 + src_rect.height * 0.47,
     )
+
+
+def render_label_in_cell(page, src_page, cfg, idx):
+    """Rend une etiquette dans la cellule idx de la page."""
+    clip = smart_crop(src_page)
     cell_w, cell_h = cfg["cell_w"], cfg["cell_h"]
-    this_src_w = src_rect.width
-    this_src_h = src_rect.height * crop_ratio
+    this_src_w = clip.width
+    this_src_h = clip.height
     this_rot_ratio, rotate = best_orientation(this_src_w, this_src_h, cell_w, cell_h)
 
     zoom = 3.0
@@ -183,7 +208,6 @@ with tab_etiquettes:
 
         st.info(f"📄 {n_pages} page(s) détectée(s) dans **{uploaded_labels.name}**")
 
-        crop_ratio = 0.57
         cfg = get_layout_config(lpp_1)
         all_pages = list(range(n_pages))
         dst = fitz.open()
@@ -193,7 +217,7 @@ with tab_etiquettes:
             page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
 
             for idx, src_page_num in enumerate(batch):
-                render_label_in_cell(page, src[src_page_num], crop_ratio, cfg, idx)
+                render_label_in_cell(page, src[src_page_num], cfg, idx)
 
             draw_cut_guides(page, cfg)
 
@@ -252,7 +276,6 @@ with tab_multi_etiquettes:
             pdf_bytes = uf.read()
             sources.append(fitz.open(stream=pdf_bytes, filetype="pdf"))
 
-        crop_ratio = 0.57
         cfg = get_layout_config(lpp_2)
         dst = fitz.open()
 
@@ -261,7 +284,7 @@ with tab_multi_etiquettes:
             page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
 
             for idx, src_doc in enumerate(batch):
-                render_label_in_cell(page, src_doc[0], crop_ratio, cfg, idx)
+                render_label_in_cell(page, src_doc[0], cfg, idx)
 
             draw_cut_guides(page, cfg)
 
