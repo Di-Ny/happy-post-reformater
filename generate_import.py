@@ -282,12 +282,17 @@ def parse_orders_from_pdf_text(pdf_path):
             last_name = name_line
             first_name = "M."
 
-        # Extraire le numéro de commande
+        # Extraire le numéro de commande (peut être sur 2 lignes : "407-\n1280029-5632366")
         order_num = ""
-        for line in lines:
-            m = re.search(r"Numéro de la commande\s*:\s*([\d-]+)", line)
+        for i, line in enumerate(lines):
+            m = re.search(r"Num.ro de la commande\s*:\s*([\d-]+)", line)
             if m:
                 order_num = m.group(1)
+                # Si le numéro se termine par "-", la suite est sur la ligne suivante
+                if order_num.endswith("-") and i + 1 < len(lines):
+                    next_part = lines[i + 1].strip()
+                    if re.match(r"^[\d-]+$", next_part):
+                        order_num += next_part
                 break
 
         # Extraire la quantité et le produit
