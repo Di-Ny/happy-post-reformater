@@ -2,6 +2,13 @@ import streamlit as st
 import fitz  # PyMuPDF
 import io
 import os
+import tempfile
+import pandas as pd
+from datetime import date as date_cls
+from generate_import import (
+    parse_orders_from_pdf_text, parse_orders_from_tsv_bytes,
+    generate_import_file, detect_product_info, COUNTRY_MAP,
+)
 
 st.set_page_config(
     page_title="Happy Post - Outils d'expedition",
@@ -328,14 +335,6 @@ with tab_import:
     )
 
     if uploaded_amazon:
-        import tempfile
-        import pandas as pd
-        from datetime import date as date_cls
-        from generate_import import (
-            parse_orders_from_pdf_text, parse_orders_from_tsv_bytes,
-            generate_import_file, detect_product_info, COUNTRY_MAP,
-        )
-
         file_bytes = uploaded_amazon.read()
         file_ext = uploaded_amazon.name.rsplit(".", 1)[-1].lower()
 
