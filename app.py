@@ -539,18 +539,16 @@ with tab_import:
             # Vérifier téléphone et email sur les lignes sélectionnées
             default_email = "contact@furgo.fr"
             blocking_rows = []
+            warning_rows = []
             for idx in selected_indices:
                 row = edited_df.iloc[idx]
                 nom = f"{row['Nom']} {row['Prénom']}".strip()
-                problems = []
                 tel = str(row["Téléphone"]).strip() if row["Téléphone"] else ""
                 email = str(row["Email"]).strip() if row["Email"] else ""
-                if not tel:
-                    problems.append("téléphone")
-                if not email or email == default_email:
-                    problems.append("email")
-                if problems:
-                    blocking_rows.append(f"**{nom}** : {', '.join(problems)} manquant(s)")
+                if not tel or not email:
+                    blocking_rows.append(f"**{nom}** : {'téléphone' if not tel else ''}{' et ' if not tel and not email else ''}{'email' if not email else ''} manquant(s)")
+                elif email == default_email:
+                    warning_rows.append(f"**{nom}** : email par défaut")
 
             _, col_bottom, _ = st.columns([1, 2, 1])
             with col_bottom:
@@ -565,10 +563,15 @@ with tab_import:
 
                     if blocking_rows:
                         st.error(
-                            "🚫 **Export bloqué** — téléphone ou email manquant :\n"
+                            "🚫 **Export bloqué** — téléphone ou email vide :\n"
                             + "\n".join(f"- {r}" for r in blocking_rows)
                         )
                     else:
+                        if warning_rows:
+                            st.warning(
+                                "⚠️ **Email par défaut** (contact@furgo.fr) :\n"
+                                + "\n".join(f"- {r}" for r in warning_rows)
+                            )
                         today_str = date_cls.today().strftime("%Y-%m-%d")
 
                         if is_gls:
