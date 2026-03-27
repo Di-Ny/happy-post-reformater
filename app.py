@@ -397,7 +397,15 @@ with tab_import:
                 else:
                     st.success(f"✅ **{len(orders)} commande(s)** extraites")
 
-            # --- Construction du DataFrame ---
+            # --- Tri par urgence AVANT construction du DataFrame ---
+            if is_tsv:
+                orders = sorted(
+                    orders,
+                    key=lambda o: o.get("days_past_promise") if o.get("days_past_promise") is not None else -999,
+                    reverse=True,
+                )
+
+            # --- Construction du DataFrame (depuis orders déjà triées) ---
             weight_map = {"x1": 0.31, "x2": 0.32, "x3": 0.35, "Multi": 0.34, "Multi x3": 0.50}
 
             edit_data = []
@@ -445,19 +453,6 @@ with tab_import:
                 })
 
             df = pd.DataFrame(edit_data)
-
-            # Tri par urgence
-            if is_tsv:
-                urgence_order = []
-                for o in orders:
-                    dp = o.get("days_past_promise")
-                    urgence_order.append(dp if dp is not None else -999)
-                df["_sort"] = urgence_order
-                df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
-                sort_idx = sorted(range(len(orders)),
-                                  key=lambda i: orders[i].get("days_past_promise") if orders[i].get("days_past_promise") is not None else -999,
-                                  reverse=True)
-                orders = [orders[i] for i in sort_idx]
 
             # Warnings centrés
             missing_rows = []
@@ -537,6 +532,7 @@ with tab_import:
 
                 pays_code = str(row["Pays"]).strip().upper()
                 o["pays"] = COUNTRY_MAP.get(pays_code, pays_code)
+                o["pays_code"] = pays_code
 
                 export_orders.append(o)
 
