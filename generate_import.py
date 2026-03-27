@@ -1,6 +1,6 @@
 """
-Script de génération du fichier d'import Happy Post à partir des commandes Amazon (PDF).
-Filtre uniquement les commandes Belgique.
+Script de génération du fichier d'import Happy Post à partir des commandes Amazon.
+Supporte PDF (ancien export) et TSV/TXT (rapport Unshipped Orders).
 
 Règles de poids :
   - Piège Seul (x1) / lot de 1 : 0.31 kg
@@ -10,14 +10,14 @@ Règles de poids :
   - Plusieurs lots de 3 (2x3+) : 0.50 kg
 
 Dimensions fixes : 20 x 15 x 15 cm
-Pays départ : BE
 """
 
 import openpyxl
 import re
 import sys
 import os
-from datetime import date
+import csv
+from datetime import date, datetime
 from copy import copy
 
 # --- CONFIG ---
@@ -26,6 +26,21 @@ TEMPLATE_PATH = os.path.join(SCRIPT_DIR, "templates", "template_import_colis.xls
 DIMENSIONS = {"longueur": 20, "largeur": 15, "hauteur": 15}
 PAYS_DEPART = "FRANCE MÉTROPOLITAINE"
 PAYS_ARRIVEE = "BELGIQUE"
+
+# Mapping code pays ISO → nom complet template Happy Post
+COUNTRY_MAP = {
+    "BE": "BELGIQUE",
+    "FR": "FRANCE MÉTROPOLITAINE",
+    "LU": "LUXEMBOURG",
+    "NL": "PAYS-BAS",
+    "DE": "ALLEMAGNE",
+    "ES": "ESPAGNE",
+    "IT": "ITALIE",
+    "PT": "PORTUGAL",
+    "GB": "ROYAUME-UNI",
+    "CH": "SUISSE",
+    "AT": "AUTRICHE",
+}
 
 # Expéditeur
 EXPEDITEUR = {
@@ -47,28 +62,210 @@ DEFAULT_DEST_EMAIL = "contact@furgo.fr"
 NATURE_CONTENU = "Vente de marchandise"
 
 
+def detect_product_info(product_description):
+    """Détecte le type de produit et le nombre de pièces par unité.
+
+    Returns:
+        (type_label, pieces_per_unit) — pieces_per_unit=0 si produit non-piège
+    """
+    desc_lower = product_description.lower()
+    if "lot de 3" in desc_lower or "(x3" in desc_lower:
+        return "x3", 3
+    elif "lot de 2" in desc_lower or "(x2" in desc_lower:
+        return "x2", 2
+    elif "seul" in desc_lower or "(x1" in desc_lower:
+        return "x1", 1
+    else:
+        return "autre", 0
+
+
 def determine_weight(product_description, quantity):
     """Détermine le poids selon le type de lot et la quantité commandée."""
-    desc_lower = product_description.lower()
-
-    is_lot3 = "lot de 3" in desc_lower or "(x3" in desc_lower
-    is_lot2 = "lot de 2" in desc_lower or "(x2" in desc_lower
-    is_single = "seul" in desc_lower or "(x1" in desc_lower
+    type_label, _ = detect_product_info(product_description)
 
     if quantity > 1:
-        if is_lot3:
+        if type_label == "x3":
             return 0.50  # Plusieurs lots de 3
         else:
             return 0.34  # Plusieurs quantités mixte
-    elif is_lot3:
+    elif type_label == "x3":
         return 0.35
-    elif is_lot2:
+    elif type_label == "x2":
         return 0.32
-    elif is_single:
+    elif type_label == "x1":
         return 0.31
     else:
-        # Fallback : essayer de deviner via le prix
-        return 0.34
+        return 0.34  # Fallback
+
+
+def parse_orders_from_tsv(tsv_path):
+    """
+    Parse les commandes depuis un rapport TSV Amazon (onglet Unshipped Orders).
+    Inclut TOUS les pays. Retourne une liste de dict.
+    """
+    orders = []
+
+    with open(tsv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for row in reader:
+            country_code = row.get("ship-country", "").strip().upper()
+
+            # Nom/Prénom depuis recipient-name
+            name_parts = row.get("recipient-name", "").strip().split()
+            if len(name_parts) >= 2:
+                last_name = name_parts[0]
+                first_name = " ".join(name_parts[1:])
+            elif len(name_parts) == 1:
+                last_name = name_parts[0]
+                first_name = "M."
+            else:
+                last_name = "?"
+                first_name = "M."
+
+            # Adresse
+            addr1 = row.get("ship-address-1", "").strip()
+            addr2 = row.get("ship-address-2", "").strip()
+            addr3 = row.get("ship-address-3", "").strip()
+            complement = " ".join(filter(None, [addr2, addr3]))
+
+            # Quantité
+            quantity = int(row.get("quantity-to-ship", "1") or "1")
+
+            # Produit et poids
+            product = row.get("product-name", "")
+            weight = determine_weight(product, quantity)
+            type_label, pieces_per_unit = detect_product_info(product)
+
+            # Téléphone : nettoyer
+            phone = row.get("buyer-phone-number", "").strip()
+            if phone.startswith("+0"):
+                phone = phone[1:]
+
+            # Date limite d'expédition et urgence
+            promise_raw = row.get("promise-date", "").strip()
+            days_past = row.get("days-past-promise", "").strip()
+            try:
+                promise_date = datetime.fromisoformat(promise_raw).date() if promise_raw else None
+            except ValueError:
+                promise_date = None
+            try:
+                days_past_int = int(days_past) if days_past else None
+            except ValueError:
+                days_past_int = None
+
+            pays_arrivee = COUNTRY_MAP.get(country_code, country_code)
+
+            order = {
+                "nom": last_name,
+                "prenom": first_name,
+                "entreprise": "",
+                "adresse": addr1,
+                "complement": complement,
+                "code_postal": row.get("ship-postal-code", "").strip(),
+                "ville": row.get("ship-city", "").strip(),
+                "province": row.get("ship-state", "").strip().rstrip("."),
+                "telephone": phone,
+                "email": row.get("buyer-email", "").strip() or DEFAULT_DEST_EMAIL,
+                "pays": pays_arrivee,
+                "pays_code": country_code,
+                "commande": row.get("order-id", "").strip(),
+                "produit": product,
+                "quantite": quantity,
+                "poids": weight,
+                "type_label": type_label,
+                "pieces_par_unite": pieces_per_unit,
+                "total_pieces": pieces_per_unit * quantity if pieces_per_unit > 0 else 0,
+                "promise_date": promise_date,
+                "days_past_promise": days_past_int,
+                "verge_of_late": row.get("verge-of-lateShipment", "").strip().lower() == "true",
+                "verge_of_cancel": row.get("verge-of-cancellation", "").strip().lower() == "true",
+                "sku": row.get("sku", "").strip(),
+            }
+
+            orders.append(order)
+
+    return orders
+
+
+def parse_orders_from_tsv_bytes(file_bytes):
+    """Variante de parse_orders_from_tsv qui accepte des bytes (pour Streamlit file_uploader)."""
+    import io
+    text = file_bytes.decode("utf-8")
+    orders = []
+
+    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    for row in reader:
+        country_code = row.get("ship-country", "").strip().upper()
+
+        name_parts = row.get("recipient-name", "").strip().split()
+        if len(name_parts) >= 2:
+            last_name = name_parts[0]
+            first_name = " ".join(name_parts[1:])
+        elif len(name_parts) == 1:
+            last_name = name_parts[0]
+            first_name = "M."
+        else:
+            last_name = "?"
+            first_name = "M."
+
+        addr1 = row.get("ship-address-1", "").strip()
+        addr2 = row.get("ship-address-2", "").strip()
+        addr3 = row.get("ship-address-3", "").strip()
+        complement = " ".join(filter(None, [addr2, addr3]))
+
+        quantity = int(row.get("quantity-to-ship", "1") or "1")
+
+        product = row.get("product-name", "")
+        weight = determine_weight(product, quantity)
+        type_label, pieces_per_unit = detect_product_info(product)
+
+        phone = row.get("buyer-phone-number", "").strip()
+        if phone.startswith("+0"):
+            phone = phone[1:]
+
+        promise_raw = row.get("promise-date", "").strip()
+        days_past = row.get("days-past-promise", "").strip()
+        try:
+            promise_date = datetime.fromisoformat(promise_raw).date() if promise_raw else None
+        except ValueError:
+            promise_date = None
+        try:
+            days_past_int = int(days_past) if days_past else None
+        except ValueError:
+            days_past_int = None
+
+        pays_arrivee = COUNTRY_MAP.get(country_code, country_code)
+
+        order = {
+            "nom": last_name,
+            "prenom": first_name,
+            "entreprise": "",
+            "adresse": addr1,
+            "complement": complement,
+            "code_postal": row.get("ship-postal-code", "").strip(),
+            "ville": row.get("ship-city", "").strip(),
+            "province": row.get("ship-state", "").strip().rstrip("."),
+            "telephone": phone,
+            "email": row.get("buyer-email", "").strip() or DEFAULT_DEST_EMAIL,
+            "pays": pays_arrivee,
+            "pays_code": country_code,
+            "commande": row.get("order-id", "").strip(),
+            "produit": product,
+            "quantite": quantity,
+            "poids": weight,
+            "type_label": type_label,
+            "pieces_par_unite": pieces_per_unit,
+            "total_pieces": pieces_per_unit * quantity if pieces_per_unit > 0 else 0,
+            "promise_date": promise_date,
+            "days_past_promise": days_past_int,
+            "verge_of_late": row.get("verge-of-lateShipment", "").strip().lower() == "true",
+            "verge_of_cancel": row.get("verge-of-cancellation", "").strip().lower() == "true",
+            "sku": row.get("sku", "").strip(),
+        }
+
+        orders.append(order)
+
+    return orders
 
 
 def parse_orders_from_pdf_text(pdf_path):

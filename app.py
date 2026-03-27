@@ -317,56 +317,125 @@ with tab_multi_etiquettes:
 # =============================================================================
 with tab_import:
     st.markdown(
-        "Générez le fichier d'import Happy Post (.xlsx) à partir de vos bons de commande Amazon (PDF). "
-        "Seules les commandes **Belgique** sont extraites."
+        "Générez le fichier d'import Happy Post (.xlsx) à partir de vos commandes Amazon. "
+        "Supporte les **PDF** (bons de commande) et les **rapports TSV** (Unshipped Orders)."
     )
 
     uploaded_amazon = st.file_uploader(
-        "Glissez ici votre PDF de commandes Amazon",
-        type=["pdf"],
+        "Glissez ici votre fichier Amazon (PDF ou rapport TXT/TSV)",
+        type=["pdf", "txt", "tsv"],
         key="amazon_uploader",
     )
 
     if uploaded_amazon:
-        # Sauvegarder temporairement le PDF pour pdfplumber
         import tempfile
-        from generate_import import parse_orders_from_pdf_text, generate_import_file
+        import pandas as pd
+        from datetime import date as date_cls
+        from generate_import import (
+            parse_orders_from_pdf_text, parse_orders_from_tsv_bytes,
+            generate_import_file, detect_product_info, COUNTRY_MAP,
+        )
 
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(uploaded_amazon.read())
-            tmp_path = tmp.name
+        file_bytes = uploaded_amazon.read()
+        file_ext = uploaded_amazon.name.rsplit(".", 1)[-1].lower()
 
-        try:
-            orders = parse_orders_from_pdf_text(tmp_path)
-        finally:
-            os.unlink(tmp_path)
+        # Parser selon le format
+        if file_ext == "pdf":
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
+            try:
+                orders = parse_orders_from_pdf_text(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+            is_tsv = False
+        else:
+            orders = parse_orders_from_tsv_bytes(file_bytes)
+            is_tsv = True
 
         if not orders:
-            st.warning("⚠️ Aucune commande Belgique trouvée dans ce PDF.")
+            st.warning("⚠️ Aucune commande trouvée dans ce fichier.")
         else:
-            st.success(f"✅ **{len(orders)} commande(s) Belgique** extraites")
+            # --- Indicateurs d'urgence (TSV uniquement) ---
+            if is_tsv:
+                today = date_cls.today()
+                nb_late = sum(1 for o in orders if (o.get("days_past_promise") or 0) > 0)
+                nb_today = sum(1 for o in orders if o.get("promise_date") == today)
+                nb_tomorrow = sum(1 for o in orders
+                                  if o.get("promise_date") and o["promise_date"] > today
+                                  and (o["promise_date"] - today).days == 1)
 
-            # Tableau éditable
-            import pandas as pd
-            label_map = {0.31: "x1", 0.32: "x2", 0.35: "x3", 0.34: "Multi", 0.50: "Multi x3"}
+                cols_metric = st.columns(4)
+                cols_metric[0].metric("Total", len(orders))
+                cols_metric[1].metric("🔴 En retard", nb_late)
+                cols_metric[2].metric("🟠 Aujourd'hui", nb_today)
+                cols_metric[3].metric("🟢 Demain", nb_tomorrow)
+            else:
+                st.success(f"✅ **{len(orders)} commande(s)** extraites")
+
+            # --- Construction du DataFrame ---
             weight_map = {"x1": 0.31, "x2": 0.32, "x3": 0.35, "Multi": 0.34, "Multi x3": 0.50}
 
             edit_data = []
-            for i, o in enumerate(orders):
+            for o in orders:
+                pays_code = o.get("pays_code", "BE")
+                type_label = o.get("type_label", "")
+                if not type_label:
+                    # Fallback pour le parser PDF
+                    label_map = {0.31: "x1", 0.32: "x2", 0.35: "x3", 0.34: "Multi", 0.50: "Multi x3"}
+                    type_label = label_map.get(o["poids"], "autre")
+
+                qty = o.get("quantite", 1)
+                ppu = o.get("pieces_par_unite", 0)
+                total_p = ppu * qty if ppu > 0 else 0
+
+                # Urgence
+                urgence = ""
+                if is_tsv:
+                    dp = o.get("days_past_promise")
+                    if dp is not None:
+                        if dp > 0:
+                            urgence = f"🔴 {dp}j retard"
+                        elif dp == 0:
+                            urgence = "🟠 Aujourd'hui"
+                        elif dp == -1:
+                            urgence = "🟠 Demain"
+                        else:
+                            urgence = f"🟢 J{dp}"
+
                 edit_data.append({
+                    "Exporter": pays_code != "FR",
+                    "Urgence": urgence,
+                    "Pays": pays_code,
                     "Nom": o["nom"],
                     "Prénom": o["prenom"],
-                    "Entreprise": o["entreprise"],
                     "Adresse": o["adresse"],
                     "Complément": o["complement"],
                     "CP": o["code_postal"],
                     "Ville": o["ville"],
-                    "Province": o["province"],
                     "Téléphone": o["telephone"],
-                    "Type": label_map.get(o["poids"], "?"),
+                    "Type": type_label,
+                    "Qté": qty,
+                    "Pièces": total_p if total_p > 0 else None,
+                    "Poids (kg)": o["poids"],
+                    "Commande": o["commande"],
                 })
 
             df = pd.DataFrame(edit_data)
+
+            # Tri par urgence : en retard d'abord, puis aujourd'hui, puis le reste
+            if is_tsv:
+                urgence_order = []
+                for o in orders:
+                    dp = o.get("days_past_promise")
+                    urgence_order.append(dp if dp is not None else -999)
+                df["_sort"] = urgence_order
+                df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
+                # Réordonner orders en parallèle
+                sort_idx = sorted(range(len(orders)),
+                                  key=lambda i: orders[i].get("days_past_promise") if orders[i].get("days_past_promise") is not None else -999,
+                                  reverse=True)
+                orders = [orders[i] for i in sort_idx]
 
             # Signaler les champs vides importants
             missing_rows = []
@@ -378,8 +447,6 @@ with tab_import:
                     missing.append("Ville")
                 if not row["CP"]:
                     missing.append("CP")
-                if not row["Téléphone"]:
-                    missing.append("Téléphone")
                 if missing:
                     missing_rows.append(f"**Ligne {i+1}** ({row['Nom']} {row['Prénom']}) : {', '.join(missing)}")
 
@@ -391,60 +458,82 @@ with tab_import:
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "Exporter": st.column_config.CheckboxColumn("✅", default=True),
+                    "Urgence": st.column_config.TextColumn("Urgence", disabled=True),
+                    "Pays": st.column_config.TextColumn("Pays", width="small"),
                     "Type": st.column_config.SelectboxColumn(
-                        options=["x1", "x2", "x3", "Multi", "Multi x3"],
+                        "Type",
+                        options=["x1", "x2", "x3", "Multi", "Multi x3", "autre"],
                     ),
+                    "Qté": st.column_config.NumberColumn("Qté", disabled=True, width="small"),
+                    "Pièces": st.column_config.NumberColumn("Pièces", disabled=True, width="small"),
+                    "Poids (kg)": st.column_config.NumberColumn(
+                        "Poids (kg)", min_value=0.01, max_value=30.0, step=0.01, format="%.2f",
+                    ),
+                    "Commande": st.column_config.TextColumn("Commande", disabled=True),
                 },
                 num_rows="fixed",
+                key="import_editor",
             )
 
-            # Réinjecter les modifications dans orders
-            for i, o in enumerate(orders):
-                row = edited_df.iloc[i]
+            # Filtrer les lignes cochées
+            selected_mask = edited_df["Exporter"].fillna(False)
+            selected_df = edited_df[selected_mask]
+            selected_indices = selected_df.index.tolist()
+
+            # Réinjecter les modifications dans orders sélectionnées
+            export_orders = []
+            for idx in selected_indices:
+                o = orders[idx].copy()
+                row = edited_df.iloc[idx]
                 o["nom"] = row["Nom"] or ""
                 o["prenom"] = row["Prénom"] or ""
-                o["entreprise"] = row["Entreprise"] or ""
                 o["adresse"] = row["Adresse"] or ""
-                o["complement"] = row["Complément"] or ""
-                o["code_postal"] = row["CP"] or ""
+                o["complement"] = str(row["Complément"]) if row["Complément"] else ""
+                o["code_postal"] = str(row["CP"]) if row["CP"] else ""
                 o["ville"] = row["Ville"] or ""
-                o["province"] = row["Province"] or ""
-                o["telephone"] = row["Téléphone"] or ""
-                o["poids"] = weight_map.get(row["Type"], o["poids"])
+                o["telephone"] = str(row["Téléphone"]) if row["Téléphone"] else ""
+                o["poids"] = float(row["Poids (kg)"])
 
-            # Compter par type
-            from collections import Counter
-            types = Counter(edited_df["Type"])
-            total_pieges = sum(
-                count * {"x1": 1, "x2": 2, "x3": 3, "Multi": 4, "Multi x3": 6}.get(t, 1)
-                for t, count in types.items()
-            )
+                # Recalculer le pays si modifié
+                pays_code = str(row["Pays"]).strip().upper()
+                o["pays"] = COUNTRY_MAP.get(pays_code, pays_code)
 
-            st.markdown(f"**Résumé :** {len(orders)} colis — ~{total_pieges} pièges au total")
+                export_orders.append(o)
 
-            # Generer le fichier Excel en memoire
-            template_path = os.path.join(os.path.dirname(__file__), "templates", "template_import_colis.xlsx")
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
-                tmp_xlsx_path = tmp_xlsx.name
+            # Résumé
+            if export_orders:
+                total_pieces = sum(
+                    o.get("total_pieces", 0) for o in export_orders
+                )
+                st.markdown(
+                    f"**Export :** {len(export_orders)} / {len(orders)} colis sélectionnés"
+                    + (f" — {total_pieces} pièges" if total_pieces > 0 else "")
+                )
 
-            try:
-                generate_import_file(orders, tmp_xlsx_path)
-                with open(tmp_xlsx_path, "rb") as f:
-                    xlsx_bytes = f.read()
-            finally:
-                os.unlink(tmp_xlsx_path)
+                # Générer le fichier Excel en mémoire
+                with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
+                    tmp_xlsx_path = tmp_xlsx.name
 
-            from datetime import date
-            today = date.today().strftime("%Y-%m-%d")
-            xlsx_name = f"import_happypost_{today}.xlsx"
+                try:
+                    generate_import_file(export_orders, tmp_xlsx_path)
+                    with open(tmp_xlsx_path, "rb") as f:
+                        xlsx_bytes = f.read()
+                finally:
+                    os.unlink(tmp_xlsx_path)
 
-            st.download_button(
-                label=f"⬇️ Télécharger {xlsx_name}",
-                data=xlsx_bytes,
-                file_name=xlsx_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-            )
+                today_str = date_cls.today().strftime("%Y-%m-%d")
+                xlsx_name = f"import_happypost_{today_str}.xlsx"
+
+                st.download_button(
+                    label=f"⬇️ Télécharger {xlsx_name}",
+                    data=xlsx_bytes,
+                    file_name=xlsx_name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                )
+            else:
+                st.info("Aucune commande sélectionnée pour l'export.")
 
 st.divider()
 st.caption(
