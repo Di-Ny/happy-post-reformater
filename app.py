@@ -125,8 +125,9 @@ def gls_crop(src_page):
     return fitz.Rect(mid_x + margin, margin, src_rect.width - margin, src_rect.height - margin)
 
 
-def render_label_in_cell(page, src_page, cfg, idx, crop_fn=None):
-    """Rend une etiquette dans la cellule idx de la page."""
+def render_label_in_cell(page, src_page, cfg, idx, crop_fn=None, scale=1.0):
+    """Rend une etiquette dans la cellule idx de la page.
+    scale < 1.0 reduit l'etiquette tout en la centrant dans la cellule."""
     if crop_fn is None:
         crop_fn = smart_crop
     clip = crop_fn(src_page)
@@ -146,6 +147,9 @@ def render_label_in_cell(page, src_page, cfg, idx, crop_fn=None):
     else:
         img_h = cell_h
         img_w = cell_h * this_rot_ratio
+
+    img_w *= scale
+    img_h *= scale
 
     cx, cy = cfg["positions"][idx]
     offset_x = (cell_w - img_w) / 2
@@ -381,7 +385,7 @@ with tab_gls:
                 page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
 
                 for idx, src_page_num in enumerate(batch):
-                    render_label_in_cell(page, src[src_page_num], cfg, idx, crop_fn=gls_crop)
+                    render_label_in_cell(page, src[src_page_num], cfg, idx, crop_fn=gls_crop, scale=0.90)
 
                 draw_cut_guides(page, cfg)
 
