@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import date as date_cls
 from generate_import import (
     parse_orders_from_pdf_text, parse_orders_from_tsv_bytes,
-    generate_import_file, detect_product_info, COUNTRY_MAP,
+    generate_import_file, generate_gls_csv, detect_product_info, COUNTRY_MAP,
 )
 
 st.set_page_config(
@@ -336,6 +336,14 @@ with tab_import:
             "Supporte les **PDF** (bons de commande) et les **rapports TSV** (Unshipped Orders)."
         )
 
+        transporteur = st.radio(
+            "Transporteur",
+            ["📦 Happy Post (xlsx)", "🚛 GLS (csv)"],
+            horizontal=True,
+            key="transporteur_choice",
+        )
+        is_gls = "GLS" in transporteur
+
         uploaded_amazon = st.file_uploader(
             "Glissez ici votre fichier Amazon (PDF ou rapport TXT/TSV)",
             type=["pdf", "txt", "tsv"],
@@ -521,26 +529,42 @@ with tab_import:
                         + (f" — {total_pieces} pièges" if total_pieces > 0 else "")
                     )
 
-                    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
-                        tmp_xlsx_path = tmp_xlsx.name
-
-                    try:
-                        generate_import_file(export_orders, tmp_xlsx_path)
-                        with open(tmp_xlsx_path, "rb") as f:
-                            xlsx_bytes = f.read()
-                    finally:
-                        os.unlink(tmp_xlsx_path)
-
                     today_str = date_cls.today().strftime("%Y-%m-%d")
-                    xlsx_name = f"import_happypost_{today_str}.xlsx"
 
-                    st.download_button(
-                        label=f"⬇️ Télécharger {xlsx_name}",
-                        data=xlsx_bytes,
-                        file_name=xlsx_name,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary",
-                    )
+                    if is_gls:
+                        # GLS : CSV semicolon
+                        csv_content = generate_gls_csv(export_orders)
+                        csv_bytes = csv_content.encode("utf-8")
+                        csv_name = f"import_gls_{today_str}.csv"
+
+                        st.download_button(
+                            label=f"⬇️ Télécharger {csv_name}",
+                            data=csv_bytes,
+                            file_name=csv_name,
+                            mime="text/csv",
+                            type="primary",
+                        )
+                    else:
+                        # Happy Post : Excel
+                        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
+                            tmp_xlsx_path = tmp_xlsx.name
+
+                        try:
+                            generate_import_file(export_orders, tmp_xlsx_path)
+                            with open(tmp_xlsx_path, "rb") as f:
+                                xlsx_bytes = f.read()
+                        finally:
+                            os.unlink(tmp_xlsx_path)
+
+                        xlsx_name = f"import_happypost_{today_str}.xlsx"
+
+                        st.download_button(
+                            label=f"⬇️ Télécharger {xlsx_name}",
+                            data=xlsx_bytes,
+                            file_name=xlsx_name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary",
+                        )
                 else:
                     st.info("Aucune commande sélectionnée pour l'export.")
 

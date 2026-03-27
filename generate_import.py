@@ -598,6 +598,68 @@ def generate_import_file(orders, output_path):
     return len(orders)
 
 
+def generate_gls_csv(orders):
+    """Génère un CSV semicolon-separated compatible avec l'import GLS.
+
+    Colonnes calquées sur le format Amazon TSV pour que le mapping GLS fonctionne :
+      1=order-id, 8=email, 10=phone, 17=recipient-name, 18=address-1,
+      19=address-2, 20=address-3, 21=city, 22=state, 23=postal-code,
+      24=country, 25=poids(kg)
+
+    Returns:
+        str — contenu CSV prêt à écrire / encoder
+    """
+    import io
+
+    # En-tête identique au TSV Amazon + colonne poids ajoutée en 25
+    headers = [
+        "order-id", "order-item-id", "purchase-date", "payments-date",
+        "reporting-date", "promise-date", "days-past-promise", "buyer-email",
+        "buyer-name", "buyer-phone-number", "sku", "product-name",
+        "quantity-purchased", "quantity-shipped", "quantity-to-ship",
+        "ship-service-level", "recipient-name", "ship-address-1",
+        "ship-address-2", "ship-address-3", "ship-city", "ship-state",
+        "ship-postal-code", "ship-country", "poids-kg",
+    ]
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(headers)
+
+    for o in orders:
+        nom_complet = f"{o['nom']} {o['prenom']}".strip()
+        row = [
+            o.get("commande", ""),       # 1  order-id
+            "",                           # 2  order-item-id
+            "",                           # 3  purchase-date
+            "",                           # 4  payments-date
+            "",                           # 5  reporting-date
+            "",                           # 6  promise-date
+            "",                           # 7  days-past-promise
+            o.get("email", ""),           # 8  buyer-email
+            "",                           # 9  buyer-name
+            o.get("telephone", ""),       # 10 buyer-phone-number
+            "",                           # 11 sku
+            "",                           # 12 product-name
+            "",                           # 13 quantity-purchased
+            "",                           # 14 quantity-shipped
+            "",                           # 15 quantity-to-ship
+            "",                           # 16 ship-service-level
+            nom_complet,                  # 17 recipient-name
+            o.get("adresse", ""),         # 18 ship-address-1
+            o.get("complement", ""),      # 19 ship-address-2
+            "",                           # 20 ship-address-3
+            o.get("ville", ""),           # 21 ship-city
+            o.get("province", ""),        # 22 ship-state
+            o.get("code_postal", ""),     # 23 ship-postal-code
+            o.get("pays_code", ""),       # 24 ship-country
+            o.get("poids", ""),           # 25 poids-kg
+        ]
+        writer.writerow(row)
+
+    return buf.getvalue()
+
+
 def generate_preparation(orders, output_path, folder_date):
     """Génère un bon de préparation au format texte."""
     from collections import Counter
