@@ -177,18 +177,6 @@ def draw_cut_guides(page, cfg):
     shape.commit()
 
 
-# En layout wide : centrer les onglets 1 et 2 via CSS, laisser le 3 en pleine largeur
-st.markdown("""
-<style>
-    /* Onglets étiquettes : contenu centré à 700px max */
-    div[data-testid="stTabs"] > div[role="tabpanel"]:nth-child(2),
-    div[data-testid="stTabs"] > div[role="tabpanel"]:nth-child(3) {
-        max-width: 700px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 tab_etiquettes, tab_multi_etiquettes, tab_import = st.tabs([
     "✂️ Reformater les étiquettes",
@@ -200,152 +188,159 @@ tab_etiquettes, tab_multi_etiquettes, tab_import = st.tabs([
 # ONGLET 1 : Reformatage des étiquettes
 # =============================================================================
 with tab_etiquettes:
-    st.markdown(
-        "Transformez vos étiquettes Happy Post : **plusieurs par feuille A4** au lieu d'une seule. "
-        "Économisez du papier."
-    )
-
-    st.image("preview.png", use_container_width=True)
-
-    format_choice_1 = st.radio(
-        "Format de sortie",
-        ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
-        horizontal=True,
-        key="format_tab1",
-    )
-    lpp_1 = 6 if "6" in format_choice_1 else 4
-
-    uploaded_labels = st.file_uploader(
-        "Glissez ici votre PDF d'étiquettes Happy Post",
-        type=["pdf"],
-        key="labels_uploader",
-    )
-
-    if uploaded_labels:
-        pdf_bytes = uploaded_labels.read()
-        src = fitz.open(stream=pdf_bytes, filetype="pdf")
-        n_pages = len(src)
-
-        st.info(f"📄 {n_pages} page(s) détectée(s) dans **{uploaded_labels.name}**")
-
-        cfg = get_layout_config(lpp_1)
-        all_pages = list(range(n_pages))
-        dst = fitz.open()
-
-        for batch_start in range(0, len(all_pages), lpp_1):
-            batch = all_pages[batch_start:batch_start + lpp_1]
-            page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
-
-            for idx, src_page_num in enumerate(batch):
-                render_label_in_cell(page, src[src_page_num], cfg, idx)
-
-            draw_cut_guides(page, cfg)
-
-        out_buf = io.BytesIO()
-        dst.save(out_buf)
-        dst.close()
-        src.close()
-        out_buf.seek(0)
-
-        n_sheets = -(-n_pages // lpp_1)
-        out_name = uploaded_labels.name.replace(".pdf", f"_{lpp_1}par_page.pdf")
-
-        st.success(
-            f"✅ {n_pages} étiquettes → **{n_sheets} feuille(s) A4**  \n"
-            f"Économie : **{n_pages - n_sheets} feuille(s)** en moins !"
+    _, col1, _ = st.columns([1, 2, 1])
+    with col1:
+        st.markdown(
+            "Transformez vos étiquettes Happy Post : **plusieurs par feuille A4** au lieu d'une seule. "
+            "Économisez du papier."
         )
 
-        st.download_button(
-            label=f"⬇️ Télécharger {out_name}",
-            data=out_buf,
-            file_name=out_name,
-            mime="application/pdf",
-            type="primary",
+        st.image("preview.png", use_container_width=True)
+
+        format_choice_1 = st.radio(
+            "Format de sortie",
+            ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
+            horizontal=True,
+            key="format_tab1",
         )
+        lpp_1 = 6 if "6" in format_choice_1 else 4
+
+        uploaded_labels = st.file_uploader(
+            "Glissez ici votre PDF d'étiquettes Happy Post",
+            type=["pdf"],
+            key="labels_uploader",
+        )
+
+        if uploaded_labels:
+            pdf_bytes = uploaded_labels.read()
+            src = fitz.open(stream=pdf_bytes, filetype="pdf")
+            n_pages = len(src)
+
+            st.info(f"📄 {n_pages} page(s) détectée(s) dans **{uploaded_labels.name}**")
+
+            cfg = get_layout_config(lpp_1)
+            all_pages = list(range(n_pages))
+            dst = fitz.open()
+
+            for batch_start in range(0, len(all_pages), lpp_1):
+                batch = all_pages[batch_start:batch_start + lpp_1]
+                page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
+
+                for idx, src_page_num in enumerate(batch):
+                    render_label_in_cell(page, src[src_page_num], cfg, idx)
+
+                draw_cut_guides(page, cfg)
+
+            out_buf = io.BytesIO()
+            dst.save(out_buf)
+            dst.close()
+            src.close()
+            out_buf.seek(0)
+
+            n_sheets = -(-n_pages // lpp_1)
+            out_name = uploaded_labels.name.replace(".pdf", f"_{lpp_1}par_page.pdf")
+
+            st.success(
+                f"✅ {n_pages} étiquettes → **{n_sheets} feuille(s) A4**  \n"
+                f"Économie : **{n_pages - n_sheets} feuille(s)** en moins !"
+            )
+
+            st.download_button(
+                label=f"⬇️ Télécharger {out_name}",
+                data=out_buf,
+                file_name=out_name,
+                mime="application/pdf",
+                type="primary",
+            )
 
 # =============================================================================
 # ONGLET 2 : Reformatage multi-fichiers
 # =============================================================================
 with tab_multi_etiquettes:
-    st.markdown(
-        "Vous avez **plusieurs fichiers PDF** (1 étiquette par fichier) ? "
-        "Combinez-les en un seul PDF avec **plusieurs étiquettes par feuille A4**."
-    )
-
-    format_choice_2 = st.radio(
-        "Format de sortie",
-        ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
-        horizontal=True,
-        key="format_tab2",
-    )
-    lpp_2 = 6 if "6" in format_choice_2 else 4
-
-    uploaded_multi = st.file_uploader(
-        "Glissez ici vos fichiers PDF d'étiquettes",
-        type=["pdf"],
-        accept_multiple_files=True,
-        key="multi_labels_uploader",
-    )
-
-    if uploaded_multi:
-        n_files = len(uploaded_multi)
-        st.info(f"📄 **{n_files} fichier(s)** sélectionné(s)")
-
-        sources = []
-        for uf in uploaded_multi:
-            pdf_bytes = uf.read()
-            sources.append(fitz.open(stream=pdf_bytes, filetype="pdf"))
-
-        cfg = get_layout_config(lpp_2)
-        dst = fitz.open()
-
-        for batch_start in range(0, n_files, lpp_2):
-            batch = sources[batch_start:batch_start + lpp_2]
-            page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
-
-            for idx, src_doc in enumerate(batch):
-                render_label_in_cell(page, src_doc[0], cfg, idx)
-
-            draw_cut_guides(page, cfg)
-
-        for s in sources:
-            s.close()
-
-        out_buf = io.BytesIO()
-        dst.save(out_buf)
-        dst.close()
-        out_buf.seek(0)
-
-        n_sheets = -(-n_files // lpp_2)
-        out_name = f"etiquettes_{lpp_2}par_page.pdf"
-        st.success(
-            f"✅ {n_files} étiquettes → **{n_sheets} feuille(s) A4**  \n"
-            f"Économie : **{n_files - n_sheets} feuille(s)** en moins !"
+    _, col2, _ = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(
+            "Vous avez **plusieurs fichiers PDF** (1 étiquette par fichier) ? "
+            "Combinez-les en un seul PDF avec **plusieurs étiquettes par feuille A4**."
         )
 
-        st.download_button(
-            label=f"⬇️ Télécharger {out_name}",
-            data=out_buf,
-            file_name=out_name,
-            mime="application/pdf",
-            type="primary",
-            key="multi_download",
+        format_choice_2 = st.radio(
+            "Format de sortie",
+            ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
+            horizontal=True,
+            key="format_tab2",
         )
+        lpp_2 = 6 if "6" in format_choice_2 else 4
+
+        uploaded_multi = st.file_uploader(
+            "Glissez ici vos fichiers PDF d'étiquettes",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="multi_labels_uploader",
+        )
+
+        if uploaded_multi:
+            n_files = len(uploaded_multi)
+            st.info(f"📄 **{n_files} fichier(s)** sélectionné(s)")
+
+            sources = []
+            for uf in uploaded_multi:
+                pdf_bytes = uf.read()
+                sources.append(fitz.open(stream=pdf_bytes, filetype="pdf"))
+
+            cfg = get_layout_config(lpp_2)
+            dst = fitz.open()
+
+            for batch_start in range(0, n_files, lpp_2):
+                batch = sources[batch_start:batch_start + lpp_2]
+                page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
+
+                for idx, src_doc in enumerate(batch):
+                    render_label_in_cell(page, src_doc[0], cfg, idx)
+
+                draw_cut_guides(page, cfg)
+
+            for s in sources:
+                s.close()
+
+            out_buf = io.BytesIO()
+            dst.save(out_buf)
+            dst.close()
+            out_buf.seek(0)
+
+            n_sheets = -(-n_files // lpp_2)
+            out_name = f"etiquettes_{lpp_2}par_page.pdf"
+            st.success(
+                f"✅ {n_files} étiquettes → **{n_sheets} feuille(s) A4**  \n"
+                f"Économie : **{n_files - n_sheets} feuille(s)** en moins !"
+            )
+
+            st.download_button(
+                label=f"⬇️ Télécharger {out_name}",
+                data=out_buf,
+                file_name=out_name,
+                mime="application/pdf",
+                type="primary",
+                key="multi_download",
+            )
 
 # =============================================================================
 # ONGLET 3 : Génération du fichier d'import
 # =============================================================================
 with tab_import:
-    st.markdown(
-        "Générez le fichier d'import Happy Post (.xlsx) à partir de vos commandes Amazon. "
-        "Supporte les **PDF** (bons de commande) et les **rapports TSV** (Unshipped Orders)."
-    )
+    # --- En-tête centré ---
+    _, col_top, _ = st.columns([1, 2, 1])
+    with col_top:
+        st.markdown(
+            "Générez le fichier d'import Happy Post (.xlsx) à partir de vos commandes Amazon. "
+            "Supporte les **PDF** (bons de commande) et les **rapports TSV** (Unshipped Orders)."
+        )
 
-    uploaded_amazon = st.file_uploader(
-        "Glissez ici votre fichier Amazon (PDF ou rapport TXT/TSV)",
-        type=["pdf", "txt", "tsv"],
-        key="amazon_uploader",
-    )
+        uploaded_amazon = st.file_uploader(
+            "Glissez ici votre fichier Amazon (PDF ou rapport TXT/TSV)",
+            type=["pdf", "txt", "tsv"],
+            key="amazon_uploader",
+        )
 
     if uploaded_amazon:
         file_bytes = uploaded_amazon.read()
@@ -366,24 +361,28 @@ with tab_import:
             is_tsv = True
 
         if not orders:
-            st.warning("⚠️ Aucune commande trouvée dans ce fichier.")
+            _, col_warn, _ = st.columns([1, 2, 1])
+            with col_warn:
+                st.warning("⚠️ Aucune commande trouvée dans ce fichier.")
         else:
-            # --- Indicateurs d'urgence (TSV uniquement) ---
-            if is_tsv:
-                today = date_cls.today()
-                nb_late = sum(1 for o in orders if (o.get("days_past_promise") or 0) > 0)
-                nb_today = sum(1 for o in orders if o.get("promise_date") == today)
-                nb_tomorrow = sum(1 for o in orders
-                                  if o.get("promise_date") and o["promise_date"] > today
-                                  and (o["promise_date"] - today).days == 1)
+            # --- Indicateurs d'urgence (centrés) ---
+            _, col_metrics, _ = st.columns([1, 2, 1])
+            with col_metrics:
+                if is_tsv:
+                    today = date_cls.today()
+                    nb_late = sum(1 for o in orders if (o.get("days_past_promise") or 0) > 0)
+                    nb_today = sum(1 for o in orders if o.get("promise_date") == today)
+                    nb_tomorrow = sum(1 for o in orders
+                                      if o.get("promise_date") and o["promise_date"] > today
+                                      and (o["promise_date"] - today).days == 1)
 
-                cols_metric = st.columns(4)
-                cols_metric[0].metric("Total", len(orders))
-                cols_metric[1].metric("🔴 En retard", nb_late)
-                cols_metric[2].metric("🟠 Aujourd'hui", nb_today)
-                cols_metric[3].metric("🟢 Demain", nb_tomorrow)
-            else:
-                st.success(f"✅ **{len(orders)} commande(s)** extraites")
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Total", len(orders))
+                    m2.metric("🔴 En retard", nb_late)
+                    m3.metric("🟠 Aujourd'hui", nb_today)
+                    m4.metric("🟢 Demain", nb_tomorrow)
+                else:
+                    st.success(f"✅ **{len(orders)} commande(s)** extraites")
 
             # --- Construction du DataFrame ---
             weight_map = {"x1": 0.31, "x2": 0.32, "x3": 0.35, "Multi": 0.34, "Multi x3": 0.50}
@@ -393,7 +392,6 @@ with tab_import:
                 pays_code = o.get("pays_code", "BE")
                 type_label = o.get("type_label", "")
                 if not type_label:
-                    # Fallback pour le parser PDF
                     label_map = {0.31: "x1", 0.32: "x2", 0.35: "x3", 0.34: "Multi", 0.50: "Multi x3"}
                     type_label = label_map.get(o["poids"], "autre")
 
@@ -401,7 +399,6 @@ with tab_import:
                 ppu = o.get("pieces_par_unite", 0)
                 total_p = ppu * qty if ppu > 0 else 0
 
-                # Urgence
                 urgence = ""
                 if is_tsv:
                     dp = o.get("days_past_promise")
@@ -435,7 +432,7 @@ with tab_import:
 
             df = pd.DataFrame(edit_data)
 
-            # Tri par urgence : en retard d'abord, puis aujourd'hui, puis le reste
+            # Tri par urgence
             if is_tsv:
                 urgence_order = []
                 for o in orders:
@@ -443,13 +440,12 @@ with tab_import:
                     urgence_order.append(dp if dp is not None else -999)
                 df["_sort"] = urgence_order
                 df = df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
-                # Réordonner orders en parallèle
                 sort_idx = sorted(range(len(orders)),
                                   key=lambda i: orders[i].get("days_past_promise") if orders[i].get("days_past_promise") is not None else -999,
                                   reverse=True)
                 orders = [orders[i] for i in sort_idx]
 
-            # Signaler les champs vides importants
+            # Warnings centrés
             missing_rows = []
             for i, row in df.iterrows():
                 missing = []
@@ -463,8 +459,11 @@ with tab_import:
                     missing_rows.append(f"**Ligne {i+1}** ({row['Nom']} {row['Prénom']}) : {', '.join(missing)}")
 
             if missing_rows:
-                st.warning("⚠️ **Champs manquants** (corrigez ci-dessous) :\n" + "\n".join(f"- {r}" for r in missing_rows))
+                _, col_miss, _ = st.columns([1, 2, 1])
+                with col_miss:
+                    st.warning("⚠️ **Champs manquants** (corrigez ci-dessous) :\n" + "\n".join(f"- {r}" for r in missing_rows))
 
+            # --- Tableau PLEINE LARGEUR ---
             edited_df = st.data_editor(
                 df,
                 use_container_width=True,
@@ -488,12 +487,11 @@ with tab_import:
                 key="import_editor",
             )
 
-            # Filtrer les lignes cochées
+            # --- Résumé et download centrés ---
             selected_mask = edited_df["Exporter"].fillna(False)
             selected_df = edited_df[selected_mask]
             selected_indices = selected_df.index.tolist()
 
-            # Réinjecter les modifications dans orders sélectionnées
             export_orders = []
             for idx in selected_indices:
                 o = orders[idx].copy()
@@ -507,45 +505,44 @@ with tab_import:
                 o["telephone"] = str(row["Téléphone"]) if row["Téléphone"] else ""
                 o["poids"] = float(row["Poids (kg)"])
 
-                # Recalculer le pays si modifié
                 pays_code = str(row["Pays"]).strip().upper()
                 o["pays"] = COUNTRY_MAP.get(pays_code, pays_code)
 
                 export_orders.append(o)
 
-            # Résumé
-            if export_orders:
-                total_pieces = sum(
-                    o.get("total_pieces", 0) for o in export_orders
-                )
-                st.markdown(
-                    f"**Export :** {len(export_orders)} / {len(orders)} colis sélectionnés"
-                    + (f" — {total_pieces} pièges" if total_pieces > 0 else "")
-                )
+            _, col_bottom, _ = st.columns([1, 2, 1])
+            with col_bottom:
+                if export_orders:
+                    total_pieces = sum(
+                        o.get("total_pieces", 0) for o in export_orders
+                    )
+                    st.markdown(
+                        f"**Export :** {len(export_orders)} / {len(orders)} colis sélectionnés"
+                        + (f" — {total_pieces} pièges" if total_pieces > 0 else "")
+                    )
 
-                # Générer le fichier Excel en mémoire
-                with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
-                    tmp_xlsx_path = tmp_xlsx.name
+                    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
+                        tmp_xlsx_path = tmp_xlsx.name
 
-                try:
-                    generate_import_file(export_orders, tmp_xlsx_path)
-                    with open(tmp_xlsx_path, "rb") as f:
-                        xlsx_bytes = f.read()
-                finally:
-                    os.unlink(tmp_xlsx_path)
+                    try:
+                        generate_import_file(export_orders, tmp_xlsx_path)
+                        with open(tmp_xlsx_path, "rb") as f:
+                            xlsx_bytes = f.read()
+                    finally:
+                        os.unlink(tmp_xlsx_path)
 
-                today_str = date_cls.today().strftime("%Y-%m-%d")
-                xlsx_name = f"import_happypost_{today_str}.xlsx"
+                    today_str = date_cls.today().strftime("%Y-%m-%d")
+                    xlsx_name = f"import_happypost_{today_str}.xlsx"
 
-                st.download_button(
-                    label=f"⬇️ Télécharger {xlsx_name}",
-                    data=xlsx_bytes,
-                    file_name=xlsx_name,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                )
-            else:
-                st.info("Aucune commande sélectionnée pour l'export.")
+                    st.download_button(
+                        label=f"⬇️ Télécharger {xlsx_name}",
+                        data=xlsx_bytes,
+                        file_name=xlsx_name,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                    )
+                else:
+                    st.info("Aucune commande sélectionnée pour l'export.")
 
 st.divider()
 st.caption(
