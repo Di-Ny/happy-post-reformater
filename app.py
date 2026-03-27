@@ -5,10 +5,15 @@ import os
 import tempfile
 import pandas as pd
 from datetime import date as date_cls
-from generate_import import (
-    parse_orders_from_pdf_text, parse_orders_from_tsv_bytes,
-    generate_import_file, generate_gls_csv, detect_product_info, COUNTRY_MAP,
-)
+try:
+    from generate_import import (
+        parse_orders_from_pdf_text, parse_orders_from_tsv_bytes,
+        generate_import_file, generate_gls_csv, detect_product_info, COUNTRY_MAP,
+    )
+except Exception as e:
+    import streamlit as _st
+    _st.error(f"Erreur import generate_import: {type(e).__name__}: {e}")
+    raise
 
 st.set_page_config(
     page_title="Happy Post - Outils d'expedition",
