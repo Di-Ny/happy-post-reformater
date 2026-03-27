@@ -436,6 +436,7 @@ with tab_import:
                     "CP": o["code_postal"],
                     "Ville": o["ville"],
                     "Téléphone": o["telephone"],
+                    "Email": o.get("email", ""),
                     "Type": type_label,
                     "Qté": qty,
                     "Pièces": total_p if total_p > 0 else None,
@@ -460,6 +461,8 @@ with tab_import:
 
             # Warnings centrés
             missing_rows = []
+            warn_rows = []
+            default_email = "contact@furgo.fr"
             for i, row in df.iterrows():
                 missing = []
                 if not row["Adresse"]:
@@ -468,13 +471,25 @@ with tab_import:
                     missing.append("Ville")
                 if not row["CP"]:
                     missing.append("CP")
+                if not row["Téléphone"]:
+                    missing.append("Téléphone")
+                if not row["Email"] or row["Email"] == default_email:
+                    missing.append("Email")
                 if missing:
-                    missing_rows.append(f"**Ligne {i+1}** ({row['Nom']} {row['Prénom']}) : {', '.join(missing)}")
+                    label = f"**Ligne {i+1}** ({row['Nom']} {row['Prénom']}) : {', '.join(missing)}"
+                    # Adresse/Ville/CP manquants = erreur, le reste = avertissement
+                    has_critical = any(f in missing for f in ["Adresse", "Ville", "CP"])
+                    if has_critical:
+                        missing_rows.append(label)
+                    else:
+                        warn_rows.append(label)
 
-            if missing_rows:
-                _, col_miss, _ = st.columns([1, 2, 1])
-                with col_miss:
-                    st.warning("⚠️ **Champs manquants** (corrigez ci-dessous) :\n" + "\n".join(f"- {r}" for r in missing_rows))
+            _, col_miss, _ = st.columns([1, 2, 1])
+            with col_miss:
+                if missing_rows:
+                    st.error("🔴 **Champs critiques manquants :**\n" + "\n".join(f"- {r}" for r in missing_rows))
+                if warn_rows:
+                    st.warning("⚠️ **Téléphone ou email manquant/par défaut :**\n" + "\n".join(f"- {r}" for r in warn_rows))
 
             # --- Tableau PLEINE LARGEUR ---
             edited_df = st.data_editor(
@@ -494,6 +509,7 @@ with tab_import:
                     "Poids (kg)": st.column_config.NumberColumn(
                         "Poids (kg)", min_value=0.01, max_value=30.0, step=0.01, format="%.2f",
                     ),
+                    "Email": st.column_config.TextColumn("Email"),
                     "Commande": st.column_config.TextColumn("Commande", disabled=True),
                 },
                 num_rows="fixed",
@@ -516,6 +532,7 @@ with tab_import:
                 o["code_postal"] = str(row["CP"]) if row["CP"] else ""
                 o["ville"] = row["Ville"] or ""
                 o["telephone"] = str(row["Téléphone"]) if row["Téléphone"] else ""
+                o["email"] = row["Email"] or ""
                 o["poids"] = float(row["Poids (kg)"])
 
                 pays_code = str(row["Pays"]).strip().upper()
