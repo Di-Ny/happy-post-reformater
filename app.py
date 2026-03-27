@@ -16,12 +16,12 @@ except Exception as e:
     raise
 
 st.set_page_config(
-    page_title="Happy Post - Outils d'expedition",
+    page_title="FURGO — Outils d'expédition",
     page_icon="📦",
     layout="wide",
 )
 
-st.title("📦 Happy Post — Outils d'expédition")
+st.title("📦 FURGO — Outils d'expédition")
 
 
 # -- Helpers de layout --
@@ -117,9 +117,19 @@ def smart_crop(src_page):
     )
 
 
-def render_label_in_cell(page, src_page, cfg, idx):
+def gls_crop(src_page):
+    """Extrait l'etiquette GLS (moitie droite de la page, sans le recepisse client)."""
+    src_rect = src_page.rect
+    mid_x = src_rect.width / 2
+    margin = 4
+    return fitz.Rect(mid_x + margin, margin, src_rect.width - margin, src_rect.height - margin)
+
+
+def render_label_in_cell(page, src_page, cfg, idx, crop_fn=None):
     """Rend une etiquette dans la cellule idx de la page."""
-    clip = smart_crop(src_page)
+    if crop_fn is None:
+        crop_fn = smart_crop
+    clip = crop_fn(src_page)
     cell_w, cell_h = cfg["cell_w"], cfg["cell_h"]
     this_src_w = clip.width
     this_src_h = clip.height
@@ -183,21 +193,22 @@ def draw_cut_guides(page, cfg):
 
 
 
-tab_etiquettes, tab_multi_etiquettes, tab_import = st.tabs([
-    "✂️ Reformater les étiquettes",
-    "✂️ Reformater (multi-fichiers)",
+tab_etiquettes, tab_multi_etiquettes, tab_gls, tab_import = st.tabs([
+    "✂️ HappyPost — Colis groupé",
+    "✂️ HappyPost — Multi-fichiers",
+    "✂️ GLS — Reformater",
     "📋 Générer le fichier d'import",
 ])
 
 # =============================================================================
-# ONGLET 1 : Reformatage des étiquettes
+# ONGLET 1 : HappyPost — Colis groupé
 # =============================================================================
 with tab_etiquettes:
     _, col1, _ = st.columns([1, 2, 1])
     with col1:
         st.markdown(
-            "Transformez vos étiquettes Happy Post : **plusieurs par feuille A4** au lieu d'une seule. "
-            "Économisez du papier."
+            "Reformatez un **PDF multi-pages** d'étiquettes Happy Post (colis groupé) : "
+            "**plusieurs par feuille A4** au lieu d'une seule. Économisez du papier."
         )
 
         st.image("preview.png", use_container_width=True)
@@ -330,7 +341,75 @@ with tab_multi_etiquettes:
             )
 
 # =============================================================================
-# ONGLET 3 : Génération du fichier d'import
+# ONGLET 3 : Reformatage GLS
+# =============================================================================
+with tab_gls:
+    _, col_gls, _ = st.columns([1, 2, 1])
+    with col_gls:
+        st.markdown(
+            "Reformatez vos étiquettes **GLS** : chaque page contient 2 étiquettes côte à côte, "
+            "seule l'étiquette d'expédition (droite) est extraite et placée **plusieurs par feuille A4**."
+        )
+
+        format_choice_gls = st.radio(
+            "Format de sortie",
+            ["4 par page (2x2)", "6 par page — Avery L7166 (2x3)"],
+            horizontal=True,
+            key="format_tab_gls",
+        )
+        lpp_gls = 6 if "6" in format_choice_gls else 4
+
+        uploaded_gls = st.file_uploader(
+            "Glissez ici votre PDF d'étiquettes GLS",
+            type=["pdf"],
+            key="gls_labels_uploader",
+        )
+
+        if uploaded_gls:
+            pdf_bytes = uploaded_gls.read()
+            src = fitz.open(stream=pdf_bytes, filetype="pdf")
+            n_pages = len(src)
+
+            st.info(f"📄 {n_pages} étiquette(s) détectée(s) dans **{uploaded_gls.name}**")
+
+            cfg = get_layout_config(lpp_gls)
+            all_pages = list(range(n_pages))
+            dst = fitz.open()
+
+            for batch_start in range(0, len(all_pages), lpp_gls):
+                batch = all_pages[batch_start:batch_start + lpp_gls]
+                page = dst.new_page(width=cfg["A4_W"], height=cfg["A4_H"])
+
+                for idx, src_page_num in enumerate(batch):
+                    render_label_in_cell(page, src[src_page_num], cfg, idx, crop_fn=gls_crop)
+
+                draw_cut_guides(page, cfg)
+
+            out_buf = io.BytesIO()
+            dst.save(out_buf)
+            dst.close()
+            src.close()
+            out_buf.seek(0)
+
+            n_sheets = -(-n_pages // lpp_gls)
+            out_name = uploaded_gls.name.replace(".pdf", f"_gls_{lpp_gls}par_page.pdf")
+
+            st.success(
+                f"✅ {n_pages} étiquettes → **{n_sheets} feuille(s) A4**  \n"
+                f"Économie : **{n_pages - n_sheets} feuille(s)** en moins !"
+            )
+
+            st.download_button(
+                label=f"⬇️ Télécharger {out_name}",
+                data=out_buf,
+                file_name=out_name,
+                mime="application/pdf",
+                type="primary",
+                key="gls_download",
+            )
+
+# =============================================================================
+# ONGLET 4 : Génération du fichier d'import
 # =============================================================================
 with tab_import:
     # --- En-tête centré ---
@@ -614,6 +693,6 @@ with tab_import:
 st.divider()
 st.caption(
     "Outil gratuit par [FURGO](https://shop.furgo.fr) — "
-    "Fonctionne avec les PDF d'étiquettes générés par "
-    "[happy-post.com](https://happy-post.com)"
+    "Fonctionne avec les étiquettes "
+    "[Happy Post](https://happy-post.com) et [GLS](https://gls-group.eu)"
 )
