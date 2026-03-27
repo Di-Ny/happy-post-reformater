@@ -13,7 +13,7 @@ from generate_import import (
 st.set_page_config(
     page_title="Happy Post - Outils d'expedition",
     page_icon="📦",
-    layout="centered",
+    layout="wide",
 )
 
 st.title("📦 Happy Post — Outils d'expédition")
@@ -176,6 +176,18 @@ def draw_cut_guides(page, cfg):
             shape.finish(color=gray, width=0.3)
     shape.commit()
 
+
+# Les 2 premiers onglets restent centrés, le 3e (import) profite de toute la largeur
+st.markdown("""
+<style>
+    /* Onglets 1 et 2 : centrer le contenu (max 700px) */
+    div[data-testid="stTabs"] > div > div:nth-child(1),
+    div[data-testid="stTabs"] > div > div:nth-child(2) {
+        max-width: 700px;
+        margin: 0 auto;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 tab_etiquettes, tab_multi_etiquettes, tab_import = st.tabs([
     "✂️ Reformater les étiquettes",
