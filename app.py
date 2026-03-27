@@ -13,7 +13,7 @@ from generate_import import (
 st.set_page_config(
     page_title="Happy Post - Outils d'expedition",
     page_icon="📦",
-    layout="centered",
+    layout="wide",
 )
 
 st.title("📦 Happy Post — Outils d'expédition")
@@ -177,13 +177,15 @@ def draw_cut_guides(page, cfg):
     shape.commit()
 
 
-# Le tableau d'import déborde du conteneur centré pour occuper toute la largeur
+# En layout wide : centrer les onglets 1 et 2 via CSS, laisser le 3 en pleine largeur
 st.markdown("""
 <style>
-    [data-testid="stDataEditor"] {
-        width: 100vw !important;
-        margin-left: calc(-50vw + 50%) !important;
-        padding: 0 1rem;
+    /* Onglets étiquettes : contenu centré à 700px max */
+    div[data-testid="stTabs"] > div[role="tabpanel"]:nth-child(2),
+    div[data-testid="stTabs"] > div[role="tabpanel"]:nth-child(3) {
+        max-width: 700px;
+        margin-left: auto;
+        margin-right: auto;
     }
 </style>
 """, unsafe_allow_html=True)
