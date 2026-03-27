@@ -536,6 +536,22 @@ with tab_import:
 
                 export_orders.append(o)
 
+            # Vérifier téléphone et email sur les lignes sélectionnées
+            default_email = "contact@furgo.fr"
+            blocking_rows = []
+            for idx in selected_indices:
+                row = edited_df.iloc[idx]
+                nom = f"{row['Nom']} {row['Prénom']}".strip()
+                problems = []
+                tel = str(row["Téléphone"]).strip() if row["Téléphone"] else ""
+                email = str(row["Email"]).strip() if row["Email"] else ""
+                if not tel:
+                    problems.append("téléphone")
+                if not email or email == default_email:
+                    problems.append("email")
+                if problems:
+                    blocking_rows.append(f"**{nom}** : {', '.join(problems)} manquant(s)")
+
             _, col_bottom, _ = st.columns([1, 2, 1])
             with col_bottom:
                 if export_orders:
@@ -547,42 +563,48 @@ with tab_import:
                         + (f" — {total_pieces} pièges" if total_pieces > 0 else "")
                     )
 
-                    today_str = date_cls.today().strftime("%Y-%m-%d")
-
-                    if is_gls:
-                        # GLS : CSV semicolon
-                        csv_content = generate_gls_csv(export_orders)
-                        csv_bytes = csv_content.encode("utf-8")
-                        csv_name = f"import_gls_{today_str}.csv"
-
-                        st.download_button(
-                            label=f"⬇️ Télécharger {csv_name}",
-                            data=csv_bytes,
-                            file_name=csv_name,
-                            mime="text/csv",
-                            type="primary",
+                    if blocking_rows:
+                        st.error(
+                            "🚫 **Export bloqué** — téléphone ou email manquant :\n"
+                            + "\n".join(f"- {r}" for r in blocking_rows)
                         )
                     else:
-                        # Happy Post : Excel
-                        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
-                            tmp_xlsx_path = tmp_xlsx.name
+                        today_str = date_cls.today().strftime("%Y-%m-%d")
 
-                        try:
-                            generate_import_file(export_orders, tmp_xlsx_path)
-                            with open(tmp_xlsx_path, "rb") as f:
-                                xlsx_bytes = f.read()
-                        finally:
-                            os.unlink(tmp_xlsx_path)
+                        if is_gls:
+                            # GLS : CSV semicolon
+                            csv_content = generate_gls_csv(export_orders)
+                            csv_bytes = csv_content.encode("utf-8")
+                            csv_name = f"import_gls_{today_str}.csv"
 
-                        xlsx_name = f"import_happypost_{today_str}.xlsx"
+                            st.download_button(
+                                label=f"⬇️ Télécharger {csv_name}",
+                                data=csv_bytes,
+                                file_name=csv_name,
+                                mime="text/csv",
+                                type="primary",
+                            )
+                        else:
+                            # Happy Post : Excel
+                            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
+                                tmp_xlsx_path = tmp_xlsx.name
 
-                        st.download_button(
-                            label=f"⬇️ Télécharger {xlsx_name}",
-                            data=xlsx_bytes,
-                            file_name=xlsx_name,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            type="primary",
-                        )
+                            try:
+                                generate_import_file(export_orders, tmp_xlsx_path)
+                                with open(tmp_xlsx_path, "rb") as f:
+                                    xlsx_bytes = f.read()
+                            finally:
+                                os.unlink(tmp_xlsx_path)
+
+                            xlsx_name = f"import_happypost_{today_str}.xlsx"
+
+                            st.download_button(
+                                label=f"⬇️ Télécharger {xlsx_name}",
+                                data=xlsx_bytes,
+                                file_name=xlsx_name,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                type="primary",
+                            )
                 else:
                     st.info("Aucune commande sélectionnée pour l'export.")
 
