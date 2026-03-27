@@ -613,6 +613,7 @@ def generate_gls_csv(orders):
     headers = [
         "reference", "nom", "adresse", "complement",
         "code_postal", "ville", "pays", "telephone", "email", "poids_kg",
+        "objet",
     ]
 
     buf = io.StringIO()
@@ -621,6 +622,18 @@ def generate_gls_csv(orders):
 
     for o in orders:
         nom_complet = f"{o['nom']} {o['prenom']}".strip()
+
+        # Objet : résumé du contenu ex: "4p (2x2)" ou "3p (1x3)" ou "1p (1x1)"
+        qty = o.get("quantite", 1)
+        tl = o.get("type_label", "")
+        tp = o.get("total_pieces", 0)
+        if tl and tl != "autre" and tp > 0:
+            objet = f"{tp}p ({qty}{tl})"
+        elif tl == "autre":
+            objet = o.get("produit", "")[:40]
+        else:
+            objet = ""
+
         writer.writerow([
             o.get("commande", ""),
             nom_complet,
@@ -632,6 +645,7 @@ def generate_gls_csv(orders):
             o.get("telephone", ""),
             o.get("email", ""),
             o.get("poids", ""),
+            objet,
         ])
 
     return buf.getvalue()
